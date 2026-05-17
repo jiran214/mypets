@@ -6,7 +6,6 @@ import type { PetMeta, AnimationState } from './types';
 const STORAGE_KEY = 'mypets-config';
 
 let currentMeta: PetMeta | null = null;
-let currentFolder: string = '';
 let previewImage: HTMLImageElement | null = null;
 
 function loadSavedFolder(): string {
@@ -73,7 +72,12 @@ function updateStartButton(): void {
 }
 
 export async function transitionToPetMode(
-  renderer: { setImage: (path: string) => Promise<void>; setState: (s: AnimationState) => void; start: () => void },
+  renderer: {
+    setImage: (path: string) => Promise<void>;
+    setState: (s: AnimationState) => void;
+    start: () => void;
+    getDisplaySize: () => { width: number; height: number };
+  },
   defaultState: AnimationState,
 ): Promise<void> {
   if (!currentMeta) return;
@@ -90,15 +94,16 @@ export async function transitionToPetMode(
   renderer.start();
 
   const win = getCurrentWindow();
+  const size = renderer.getDisplaySize();
   await win.setDecorations(false);
-  await win.setSize(new LogicalSize(250, 260));
+  await win.setSize(new LogicalSize(size.width, size.height));
   await win.setAlwaysOnTop(true);
   await win.setSkipTaskbar(true);
   await win.setResizable(false);
   await win.center();
 
   document.getElementById('landing-page')!.classList.add('hidden');
-  document.getElementById('pet-canvas')!.style.display = 'block';
+  document.getElementById('pet-stage')!.style.display = 'inline-flex';
   document.documentElement.style.background = 'transparent';
   document.body.style.background = 'transparent';
 }
@@ -111,7 +116,7 @@ export async function transitionToLandingMode(): Promise<void> {
   await win.setSize(new LogicalSize(420, 380));
   await win.center();
 
-  document.getElementById('pet-canvas')!.style.display = 'none';
+  document.getElementById('pet-stage')!.style.display = 'none';
   document.getElementById('landing-page')!.classList.remove('hidden');
   document.documentElement.style.background = '';
   document.body.style.background = '';
@@ -130,7 +135,6 @@ export async function initLandingPage(): Promise<{ autoStart: boolean; meta: Pet
     try {
       const meta = await loadPet(folder);
       currentMeta = meta;
-      currentFolder = folder;
       showPetInfo(meta);
       saveFolder(folder);
       updateStartButton();
@@ -152,7 +156,6 @@ export async function initLandingPage(): Promise<{ autoStart: boolean; meta: Pet
     try {
       const meta = await loadPet(savedFolder);
       currentMeta = meta;
-      currentFolder = savedFolder;
       showPetInfo(meta);
       updateStartButton();
       try {

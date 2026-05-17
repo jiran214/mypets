@@ -19,6 +19,68 @@ canvas {
   cursor: grab;
 }
 
+#pet-stage {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: 192px;
+  height: 208px;
+}
+
+#pet-stage:hover #pet-resize-handle,
+#pet-resize-handle:focus-visible,
+#pet-resize-handle[data-active='true'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#pet-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: top left;
+}
+
+#pet-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  cursor: nwse-resize;
+}
+
+#pet-resize-handle::before,
+#pet-resize-handle::after {
+  content: '';
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.22);
+}
+
+#pet-resize-handle::before {
+  width: 16px;
+  height: 3px;
+  transform: rotate(-45deg);
+  transform-origin: right center;
+}
+
+#pet-resize-handle::after {
+  width: 10px;
+  height: 3px;
+  transform: translate(-3px, -4px) rotate(-45deg);
+  transform-origin: right center;
+}
+
 /* ── Landing Page ── */
 
 #landing-page {
@@ -191,4 +253,3 @@ canvas {
 .btn-row .btn {
   margin-top: 0;
 }
-
