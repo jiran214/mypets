@@ -1,0 +1,18 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for the pet runner",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:window:allow-set-size",
+    "core:window:allow-set-decorations",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-skip-taskbar",
+    "core:window:allow-set-resizable",
+    "core:window:allow-center",
+    "dialog:default",
+    "dialog:allow-open"
+  ]
+}

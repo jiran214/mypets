@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Desktop Pet</title>
+</head>
+<body>
+  <div id="landing-page">
+    <div class="landing-header">
+      <span class="header-icon">🐾</span>
+      <h1>Desktop Pet</h1>
+      <p class="subtitle">Choose your companion</p>
+    </div>
+
+    <div class="preview-area" id="preview-area">
+      <div class="preview-placeholder" id="preview-placeholder">
+        <span class="placeholder-icon">🐱</span>
+        <span class="placeholder-text">Select a pet folder to begin</span>
+      </div>
+      <div class="preview-loaded" id="preview-loaded" style="display:none">
+        <canvas id="preview-canvas" width="96" height="104"></canvas>
+        <div class="pet-info">
+          <h2 id="pet-name"></h2>
+          <p id="pet-description"></p>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button id="select-folder-btn" class="btn btn-secondary">
+        <span class="btn-icon">📁</span>
+        Select Folder
+      </button>
+      <button id="start-btn" class="btn btn-primary" disabled>
+        <span class="btn-icon">▶</span>
+        Start
+      </button>
+    </div>
+  </div>
+
+  <canvas id="pet-canvas" width="192" height="208" style="display:none"></canvas>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
