@@ -717,7 +717,8 @@ canvas {
   --pet-offset-y: 0px;
   --bubble-left: 0px;
   --bubble-height: 300px;
-  --bubble-gap: 4px;
+  --bubble-gap: 2px;
+  --bubble-top: 80px;
   position: relative;
   display: inline-flex;
   align-items: flex-start;
@@ -794,7 +795,7 @@ canvas {
 #chat-bubble {
   position: absolute;
   left: var(--bubble-left);
-  top: 0;
+  top: var(--bubble-top);
   width: 340px;
   height: 300px;
   transform: translateX(-50%);
