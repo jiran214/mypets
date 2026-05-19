@@ -14,6 +14,7 @@ const enum Priority {
 }
 
 type InteractionSource = 'hover' | 'drag';
+type Size = { width: number; height: number };
 
 interface InteractionSlot {
   priority: Priority;
@@ -189,6 +190,7 @@ function setupResizeHandle(
   canvas: HTMLCanvasElement,
   handle: HTMLButtonElement,
   renderer: SpriteRenderer,
+  resolveWindowSize?: (base: Size) => Size,
 ): void {
   const appWindow = getCurrentWindow();
   let scale = 1;
@@ -202,7 +204,9 @@ function setupResizeHandle(
     if (stage.style.display === 'none') {
       return;
     }
-    void appWindow.setSize(new LogicalSize(stage.offsetWidth, stage.offsetHeight));
+    const base = { width: stage.offsetWidth, height: stage.offsetHeight };
+    const size = resolveWindowSize ? resolveWindowSize(base) : base;
+    void appWindow.setSize(new LogicalSize(size.width, size.height));
   };
 
   syncStageScale(stage, canvas, renderer, scale);
@@ -241,7 +245,9 @@ function setupResizeHandle(
 
     scale = nextScale;
     syncStageScale(stage, canvas, renderer, scale);
-    void appWindow.setSize(new LogicalSize(stage.offsetWidth, stage.offsetHeight));
+    const base = { width: stage.offsetWidth, height: stage.offsetHeight };
+    const size = resolveWindowSize ? resolveWindowSize(base) : base;
+    void appWindow.setSize(new LogicalSize(size.width, size.height));
   });
 
   const stopResize = (e?: PointerEvent) => {
@@ -261,9 +267,10 @@ export function setupInteractions(
   canvas: HTMLCanvasElement,
   handle: HTMLButtonElement,
   renderer: SpriteRenderer,
+  resolveWindowSize?: (base: Size) => Size,
 ): void {
   const manager = new InteractionManager(renderer);
-  setupResizeHandle(stage, canvas, handle, renderer);
+  setupResizeHandle(stage, canvas, handle, renderer, resolveWindowSize);
   setupDragDirection(canvas, manager);
   setupHover(canvas, manager);
 }

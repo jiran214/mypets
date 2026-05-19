@@ -1,6 +1,9 @@
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { pickPetFolder, loadPet, loadSpritesheet } from './pet-loader';
 import { CELL_W, CELL_H } from './animation-data';
+import { saveAiSettings } from './ai-api';
+import type { ChatRuntime } from './chat-runtime';
+import type { AiSettings } from './ai-types';
 import type { PetMeta, AnimationState } from './types';
 
 const STORAGE_KEY = 'mypets-config';
@@ -79,6 +82,7 @@ export async function transitionToPetMode(
     getDisplaySize: () => { width: number; height: number };
   },
   defaultState: AnimationState,
+  resolveWindowSize?: (base: { width: number; height: number }) => { width: number; height: number },
 ): Promise<void> {
   if (!currentMeta) return;
 
@@ -95,8 +99,9 @@ export async function transitionToPetMode(
 
   const win = getCurrentWindow();
   const size = renderer.getDisplaySize();
+  const windowSize = resolveWindowSize ? resolveWindowSize(size) : size;
   await win.setDecorations(false);
-  await win.setSize(new LogicalSize(size.width, size.height));
+  await win.setSize(new LogicalSize(windowSize.width, windowSize.height));
   await win.setAlwaysOnTop(true);
   await win.setSkipTaskbar(true);
   await win.setResizable(false);
@@ -109,11 +114,12 @@ export async function transitionToPetMode(
 }
 
 export async function transitionToLandingMode(): Promise<void> {
+  document.dispatchEvent(new CustomEvent('close-chat-bubble'));
   const win = getCurrentWindow();
   await win.setAlwaysOnTop(false);
   await win.setSkipTaskbar(false);
   await win.setDecorations(true);
-  await win.setSize(new LogicalSize(420, 380));
+  await win.setSize(new LogicalSize(720, 600));
   await win.center();
 
   document.getElementById('pet-stage')!.style.display = 'none';
@@ -122,7 +128,87 @@ export async function transitionToLandingMode(): Promise<void> {
   document.body.style.background = '';
 }
 
-export async function initLandingPage(): Promise<{ autoStart: boolean; meta: PetMeta | null }> {
+function initTabs(): void {
+  const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('.tab-button'));
+  const panels = Array.from(document.querySelectorAll<HTMLElement>('.tab-panel'));
+
+  const activate = (tab: string) => {
+    for (const button of buttons) {
+      button.classList.toggle('active', button.dataset.tab === tab);
+    }
+    for (const panel of panels) {
+      panel.classList.toggle('active', panel.id === `tab-${tab}`);
+    }
+  };
+
+  for (const button of buttons) {
+    button.addEventListener('click', () => activate(button.dataset.tab ?? 'skin'));
+  }
+}
+
+function setInputValue(id: string, value: string): void {
+  const input = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement;
+  input.value = value;
+}
+
+function setCheckboxValue(id: string, value: boolean): void {
+  const input = document.getElementById(id) as HTMLInputElement;
+  input.checked = value;
+}
+
+function readAiSettings(): AiSettings {
+  const maxTurnsValue = (document.getElementById('claude-max-turns') as HTMLInputElement).valueAsNumber;
+  return {
+    providerId: 'claude',
+    claude: {
+      pathToClaudeCodeExecutable: (document.getElementById('claude-executable') as HTMLInputElement).value.trim(),
+      cwd: (document.getElementById('claude-cwd') as HTMLInputElement).value.trim(),
+      model: (document.getElementById('claude-model') as HTMLInputElement).value.trim(),
+      permissionMode: (document.getElementById('claude-permission-mode') as HTMLSelectElement).value,
+      maxTurns: Number.isFinite(maxTurnsValue) && maxTurnsValue > 0 ? maxTurnsValue : null,
+      systemPrompt: (document.getElementById('claude-system-prompt') as HTMLTextAreaElement).value.trim(),
+      useProjectSettings: (document.getElementById('claude-project-settings') as HTMLInputElement).checked,
+    },
+  };
+}
+
+function initAiSettings(runtime: ChatRuntime): void {
+  const state = runtime.getAiState();
+  if (!state) return;
+
+  const settings = state.settings;
+  (document.getElementById('provider-id') as HTMLSelectElement).value = settings.providerId;
+  setInputValue('claude-executable', settings.claude.pathToClaudeCodeExecutable);
+  setInputValue('claude-cwd', settings.claude.cwd);
+  setInputValue('claude-model', settings.claude.model);
+  (document.getElementById('claude-permission-mode') as HTMLSelectElement).value = settings.claude.permissionMode;
+  setInputValue('claude-max-turns', settings.claude.maxTurns ? String(settings.claude.maxTurns) : '');
+  setInputValue('claude-system-prompt', settings.claude.systemPrompt);
+  setCheckboxValue('claude-project-settings', settings.claude.useProjectSettings);
+
+  document.getElementById('ai-path-mypets')!.textContent = state.paths.mypetsAiDir;
+  document.getElementById('ai-path-claude')!.textContent = state.paths.claudeDir;
+
+  const saveButton = document.getElementById('save-ai-settings') as HTMLButtonElement;
+  const status = document.getElementById('ai-settings-status')!;
+  saveButton.addEventListener('click', async () => {
+    saveButton.disabled = true;
+    status.textContent = '保存中...';
+    try {
+      const nextState = await saveAiSettings(readAiSettings());
+      runtime.setAiState(nextState);
+      status.textContent = '已保存';
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : String(error);
+    } finally {
+      saveButton.disabled = false;
+    }
+  });
+}
+
+export async function initLandingPage(runtime: ChatRuntime): Promise<{ autoStart: boolean; meta: PetMeta | null }> {
+  initTabs();
+  initAiSettings(runtime);
   const savedFolder = loadSavedFolder();
 
   const selectFolderBtn = document.getElementById('select-folder-btn')!;

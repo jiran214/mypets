@@ -18,8 +18,8 @@
         "decorations": true,
         "shadow": false,
         "resizable": false,
-        "width": 420,
-        "height": 380
+        "width": 720,
+        "height": 600
       }
     ],
     "security": {}
