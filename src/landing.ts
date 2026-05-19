@@ -2,28 +2,18 @@ import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { pickPetFolder, loadPet, loadSpritesheet } from './pet-loader';
 import { CELL_W, CELL_H } from './animation-data';
 import { saveAiSettings } from './ai-api';
+import { loadSavedWorkspaces, saveWorkspaceSelection, type PetWorkspace } from './workspaces';
 import type { ChatRuntime } from './chat-runtime';
 import type { AiSettings } from './ai-types';
 import type { PetMeta, AnimationState } from './types';
 
-const STORAGE_KEY = 'mypets-config';
-
+let workspaces: PetWorkspace[] = [];
+let currentFolder = '';
 let currentMeta: PetMeta | null = null;
 let previewImage: HTMLImageElement | null = null;
 
-function loadSavedFolder(): string {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const config = JSON.parse(raw);
-      return config.folder || '';
-    }
-  } catch {}
-  return '';
-}
-
-function saveFolder(folder: string): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({ folder }));
+function selectedWorkspace(): PetWorkspace | null {
+  return workspaces.find((workspace) => workspace.folder === currentFolder) ?? null;
 }
 
 function drawPreview(): void {
@@ -31,8 +21,8 @@ function drawPreview(): void {
   if (!canvas || !previewImage) return;
 
   const dpr = window.devicePixelRatio || 1;
-  const displayW = 96;
-  const displayH = 104;
+  const displayW = 120;
+  const displayH = 130;
   canvas.width = displayW * dpr;
   canvas.height = displayH * dpr;
   canvas.style.width = `${displayW}px`;
@@ -40,6 +30,7 @@ function drawPreview(): void {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
   ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, displayW, displayH);
   ctx.drawImage(previewImage, 0, 0, CELL_W, CELL_H, 0, 0, displayW, displayH);
 }
 
@@ -57,21 +48,116 @@ async function loadPetPreview(spritesheetPath: string): Promise<void> {
   });
 }
 
-function showPetInfo(meta: PetMeta): void {
+function setText(id: string, value: string): void {
+  document.getElementById(id)!.textContent = value;
+}
+
+function setInputValue(id: string, value: string): void {
+  const input = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement;
+  input.value = value;
+}
+
+function setCheckboxValue(id: string, value: boolean): void {
+  const input = document.getElementById(id) as HTMLInputElement;
+  input.checked = value;
+}
+
+function setSettingsDisabled(disabled: boolean): void {
+  for (const element of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('[data-ai-setting]')) {
+    element.disabled = disabled;
+  }
+  (document.getElementById('save-ai-settings') as HTMLButtonElement).disabled = disabled;
+}
+
+function updateWorkspaceList(): void {
+  const list = document.getElementById('workspace-list')!;
+  setText('workspace-count', `${workspaces.length}`);
+
+  if (workspaces.length === 0) {
+    list.innerHTML = '<div class="workspace-empty">还没有桌宠工作空间</div>';
+    return;
+  }
+
+  list.innerHTML = workspaces
+    .map((workspace) => `
+      <button class="workspace-item ${workspace.folder === currentFolder ? 'active' : ''}" type="button" data-folder="${escapeAttribute(workspace.folder)}">
+        <span class="workspace-avatar">${escapeHtml(workspace.meta.displayName.slice(0, 1) || '宠')}</span>
+        <span class="workspace-copy">
+          <strong>${escapeHtml(workspace.meta.displayName)}</strong>
+          <small>${escapeHtml(workspace.folder)}</small>
+        </span>
+      </button>
+    `)
+    .join('');
+}
+
+function updateWorkspaceInfo(): void {
+  const workspace = selectedWorkspace();
   const placeholder = document.getElementById('preview-placeholder')!;
   const loaded = document.getElementById('preview-loaded')!;
-  const nameEl = document.getElementById('pet-name')!;
-  const descEl = document.getElementById('pet-description')!;
+  const startBtn = document.getElementById('start-btn') as HTMLButtonElement;
+
+  currentMeta = workspace?.meta ?? null;
+  startBtn.disabled = !workspace;
+
+  if (!workspace) {
+    previewImage = null;
+    placeholder.style.display = 'flex';
+    loaded.style.display = 'none';
+    setText('current-workspace-name', '请选择或创建桌宠工作空间');
+    setText('current-workspace-folder', '导入包含 pet.json 的文件夹');
+    setText('current-workspace-description', '一次只能启动一只桌宠。');
+    setText('pet-name', '');
+    setText('pet-description', '');
+    setText('selected-workspace-path', '');
+    return;
+  }
 
   placeholder.style.display = 'none';
   loaded.style.display = 'flex';
-  nameEl.textContent = meta.displayName;
-  descEl.textContent = meta.description;
+  setText('current-workspace-name', workspace.meta.displayName);
+  setText('current-workspace-folder', workspace.folder);
+  setText('current-workspace-description', workspace.meta.description);
+  setText('pet-name', workspace.meta.displayName);
+  setText('pet-description', workspace.meta.description);
+  setText('selected-workspace-path', workspace.folder);
 }
 
-function updateStartButton(): void {
-  const btn = document.getElementById('start-btn') as HTMLButtonElement;
-  btn.disabled = !currentMeta;
+async function selectWorkspace(folder: string, runtime: ChatRuntime): Promise<void> {
+  currentFolder = folder;
+  saveWorkspaceSelection(workspaces, currentFolder);
+  updateWorkspaceList();
+  updateWorkspaceInfo();
+  await runtime.setWorkspace(folder);
+  renderAiSettings(runtime);
+
+  const workspace = selectedWorkspace();
+  if (!workspace) return;
+  try {
+    await loadPetPreview(workspace.meta.spritesheetPath);
+  } catch (previewErr) {
+    console.warn('Failed to load preview:', previewErr);
+  }
+}
+
+async function importWorkspace(runtime: ChatRuntime): Promise<void> {
+  const folder = await pickPetFolder();
+  if (!folder) return;
+
+  try {
+    const meta = await loadPet(folder);
+    const existingIndex = workspaces.findIndex((workspace) => workspace.folder === folder);
+    const workspace = { folder, meta };
+    if (existingIndex >= 0) {
+      workspaces[existingIndex] = workspace;
+    } else {
+      workspaces.push(workspace);
+    }
+    await selectWorkspace(folder, runtime);
+  } catch (err) {
+    console.error('Failed to load pet:', err);
+    alert(`无法导入桌宠工作空间：\n${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export async function transitionToPetMode(
@@ -90,7 +176,7 @@ export async function transitionToPetMode(
     await renderer.setImage(currentMeta.spritesheetPath);
   } catch (err) {
     console.error('Failed to load spritesheet:', err);
-    alert(`Failed to load spritesheet image:\n${currentMeta.spritesheetPath}\n\nCheck console for details.`);
+    alert(`无法加载桌宠贴图：\n${currentMeta.spritesheetPath}`);
     return;
   }
 
@@ -114,12 +200,12 @@ export async function transitionToPetMode(
 }
 
 export async function transitionToLandingMode(): Promise<void> {
-  document.dispatchEvent(new CustomEvent('close-chat-bubble'));
+  document.dispatchEvent(new CustomEvent('close-chat-bubble', { detail: { syncFrame: false } }));
   const win = getCurrentWindow();
   await win.setAlwaysOnTop(false);
   await win.setSkipTaskbar(false);
   await win.setDecorations(true);
-  await win.setSize(new LogicalSize(720, 600));
+  await win.setSize(new LogicalSize(920, 640));
   await win.center();
 
   document.getElementById('pet-stage')!.style.display = 'none';
@@ -146,57 +232,50 @@ function initTabs(): void {
   }
 }
 
-function setInputValue(id: string, value: string): void {
-  const input = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement;
-  input.value = value;
-}
-
-function setCheckboxValue(id: string, value: boolean): void {
-  const input = document.getElementById(id) as HTMLInputElement;
-  input.checked = value;
-}
-
 function readAiSettings(): AiSettings {
-  const maxTurnsValue = (document.getElementById('claude-max-turns') as HTMLInputElement).valueAsNumber;
   return {
     providerId: 'claude',
     claude: {
       pathToClaudeCodeExecutable: (document.getElementById('claude-executable') as HTMLInputElement).value.trim(),
-      cwd: (document.getElementById('claude-cwd') as HTMLInputElement).value.trim(),
-      model: (document.getElementById('claude-model') as HTMLInputElement).value.trim(),
       permissionMode: (document.getElementById('claude-permission-mode') as HTMLSelectElement).value,
-      maxTurns: Number.isFinite(maxTurnsValue) && maxTurnsValue > 0 ? maxTurnsValue : null,
-      systemPrompt: (document.getElementById('claude-system-prompt') as HTMLTextAreaElement).value.trim(),
-      useProjectSettings: (document.getElementById('claude-project-settings') as HTMLInputElement).checked,
+      useUserSettings: (document.getElementById('claude-user-settings') as HTMLInputElement).checked,
+      customEnvText: (document.getElementById('claude-custom-env') as HTMLTextAreaElement).value,
     },
   };
 }
 
-function initAiSettings(runtime: ChatRuntime): void {
+function renderAiSettings(runtime: ChatRuntime): void {
   const state = runtime.getAiState();
-  if (!state) return;
+  setSettingsDisabled(!state);
+
+  if (!state) {
+    setInputValue('claude-executable', '');
+    (document.getElementById('claude-permission-mode') as HTMLSelectElement).value = 'default';
+    setCheckboxValue('claude-user-settings', false);
+    setInputValue('claude-custom-env', '');
+    return;
+  }
 
   const settings = state.settings;
-  (document.getElementById('provider-id') as HTMLSelectElement).value = settings.providerId;
   setInputValue('claude-executable', settings.claude.pathToClaudeCodeExecutable);
-  setInputValue('claude-cwd', settings.claude.cwd);
-  setInputValue('claude-model', settings.claude.model);
   (document.getElementById('claude-permission-mode') as HTMLSelectElement).value = settings.claude.permissionMode;
-  setInputValue('claude-max-turns', settings.claude.maxTurns ? String(settings.claude.maxTurns) : '');
-  setInputValue('claude-system-prompt', settings.claude.systemPrompt);
-  setCheckboxValue('claude-project-settings', settings.claude.useProjectSettings);
+  setCheckboxValue('claude-user-settings', settings.claude.useUserSettings);
+  setInputValue('claude-custom-env', settings.claude.customEnvText);
+}
 
-  document.getElementById('ai-path-mypets')!.textContent = state.paths.mypetsAiDir;
-  document.getElementById('ai-path-claude')!.textContent = state.paths.claudeDir;
-
+function initAiSettings(runtime: ChatRuntime): void {
   const saveButton = document.getElementById('save-ai-settings') as HTMLButtonElement;
   const status = document.getElementById('ai-settings-status')!;
+
   saveButton.addEventListener('click', async () => {
+    if (!currentFolder) return;
+
     saveButton.disabled = true;
     status.textContent = '保存中...';
     try {
-      const nextState = await saveAiSettings(readAiSettings());
+      const nextState = await saveAiSettings(currentFolder, readAiSettings());
       runtime.setAiState(nextState);
+      renderAiSettings(runtime);
       status.textContent = '已保存';
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : String(error);
@@ -206,54 +285,52 @@ function initAiSettings(runtime: ChatRuntime): void {
   });
 }
 
-export async function initLandingPage(runtime: ChatRuntime): Promise<{ autoStart: boolean; meta: PetMeta | null }> {
+export async function initLandingPage(runtime: ChatRuntime): Promise<void> {
   initTabs();
   initAiSettings(runtime);
-  const savedFolder = loadSavedFolder();
 
-  const selectFolderBtn = document.getElementById('select-folder-btn')!;
+  const createButton = document.getElementById('create-workspace-btn') as HTMLButtonElement;
+  const importButton = document.getElementById('select-folder-btn') as HTMLButtonElement;
   const startBtn = document.getElementById('start-btn') as HTMLButtonElement;
+  const workspaceList = document.getElementById('workspace-list')!;
 
-  selectFolderBtn.addEventListener('click', async () => {
-    const folder = await pickPetFolder();
-    if (!folder) return;
-
-    try {
-      const meta = await loadPet(folder);
-      currentMeta = meta;
-      showPetInfo(meta);
-      saveFolder(folder);
-      updateStartButton();
-      try {
-        await loadPetPreview(meta.spritesheetPath);
-      } catch (previewErr) {
-        console.warn('Failed to load preview:', previewErr);
-      }
-    } catch (err) {
-      console.error('Failed to load pet:', err);
-    }
+  createButton.addEventListener('click', () => {
+    void importWorkspace(runtime);
   });
-
+  importButton.addEventListener('click', () => {
+    void importWorkspace(runtime);
+  });
+  workspaceList.addEventListener('click', (event) => {
+    const item = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-folder]');
+    if (!item) return;
+    void selectWorkspace(item.dataset.folder ?? '', runtime);
+  });
   startBtn.addEventListener('click', () => {
     document.dispatchEvent(new CustomEvent('start-pet'));
   });
 
-  if (savedFolder) {
-    try {
-      const meta = await loadPet(savedFolder);
-      currentMeta = meta;
-      showPetInfo(meta);
-      updateStartButton();
-      try {
-        await loadPetPreview(meta.spritesheetPath);
-      } catch (previewErr) {
-        console.warn('Failed to load preview:', previewErr);
-      }
-      return { autoStart: true, meta };
-    } catch {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }
+  const saved = await loadSavedWorkspaces();
+  workspaces = saved.workspaces;
+  currentFolder = saved.currentFolder;
+  updateWorkspaceList();
+  updateWorkspaceInfo();
 
-  return { autoStart: false, meta: null };
+  if (currentFolder) {
+    await selectWorkspace(currentFolder, runtime);
+  } else {
+    renderAiSettings(runtime);
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function escapeAttribute(value: string): string {
+  return escapeHtml(value);
 }

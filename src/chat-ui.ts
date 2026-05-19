@@ -1,7 +1,12 @@
-import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
+import { getCurrentWindow, LogicalSize, PhysicalPosition } from '@tauri-apps/api/window';
 import type { ChatRuntime } from './chat-runtime';
+import type { ChatMessagePart } from './ai-types';
 
 type Size = { width: number; height: number };
+type BubbleLayout = Size & { petOffsetX: number; petOffsetY: number };
+const BUBBLE_WIDTH = 340;
+const BUBBLE_HEIGHT = 300;
+const BUBBLE_GAP = 4;
 
 export interface ChatBubbleController {
   resolvePetWindowSize: (base: Size) => Size;
@@ -11,6 +16,7 @@ export interface ChatBubbleController {
 export function mountChatUi(root: HTMLElement, runtime: ChatRuntime, compact = false): void {
   root.innerHTML = `
     <div class="chat-panel ${compact ? 'chat-panel-compact' : ''}">
+      ${compact ? '<div class="chat-panel-header"><span>聊天</span><button class="chat-close" type="button" aria-label="关闭聊天">×</button></div>' : ''}
       <div class="chat-list" data-chat-list></div>
       <form class="chat-form" data-chat-form>
         <textarea class="chat-input" data-chat-input rows="2" placeholder="输入消息"></textarea>
@@ -25,6 +31,11 @@ export function mountChatUi(root: HTMLElement, runtime: ChatRuntime, compact = f
   const input = root.querySelector<HTMLTextAreaElement>('[data-chat-input]')!;
   const sendButton = root.querySelector<HTMLButtonElement>('.chat-send')!;
   const status = root.querySelector<HTMLElement>('[data-chat-status]')!;
+  const closeButton = root.querySelector<HTMLButtonElement>('.chat-close');
+
+  closeButton?.addEventListener('click', () => {
+    document.dispatchEvent(new CustomEvent('close-chat-bubble'));
+  });
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -44,55 +55,100 @@ export function mountChatUi(root: HTMLElement, runtime: ChatRuntime, compact = f
     const conversation = runtime.getConversation();
     list.innerHTML = conversation.messages
       .map((message) => {
-        const role = message.role === 'user' ? '你' : 'Claude';
         const classes = ['chat-message', `chat-message-${message.role}`];
         if (message.error) classes.push('chat-message-error');
         if (message.pending) classes.push('chat-message-pending');
         return `
           <div class="${classes.join(' ')}">
-            <div class="chat-message-role">${role}</div>
-            <div class="chat-message-text">${escapeHtml(message.text)}</div>
+            <div class="chat-message-body">${message.parts.map(renderPart).join('')}</div>
           </div>
         `;
       })
       .join('');
 
     const isStreaming = runtime.isStreaming();
-    sendButton.disabled = isStreaming || !input.value.trim();
+    sendButton.disabled = isStreaming || !input.value.trim() || !runtime.hasWorkspace();
     input.disabled = isStreaming;
-    status.textContent = runtime.getStatusText();
+    status.textContent = runtime.getStatusText() || (runtime.hasWorkspace() ? '' : '请先选择桌宠工作空间');
     list.scrollTop = list.scrollHeight;
   });
 
   input.addEventListener('input', () => {
-    sendButton.disabled = runtime.isStreaming() || !input.value.trim();
+    sendButton.disabled = runtime.isStreaming() || !input.value.trim() || !runtime.hasWorkspace();
   });
 }
 
 export function setupChatBubble(stage: HTMLElement, canvas: HTMLCanvasElement): ChatBubbleController {
   const bubble = document.getElementById('chat-bubble') as HTMLElement;
-  const win = getCurrentWindow();
+  const win = safeCurrentWindow();
   let open = false;
   let pointerStart: { x: number; y: number } | null = null;
 
-  const resolvePetWindowSize = (base: Size): Size => {
-    if (!open) return base;
+  const currentPetSize = (): Size => ({
+    width: canvas.offsetWidth || canvas.width,
+    height: canvas.offsetHeight || canvas.height,
+  });
+
+  const createLayout = (base: Size, withBubble: boolean): BubbleLayout => {
+    if (!withBubble) {
+      return { ...base, petOffsetX: 0, petOffsetY: 0 };
+    }
+
+    const petOffsetX = Math.max(0, Math.round((BUBBLE_WIDTH - base.width) / 2));
+    const petOffsetY = BUBBLE_HEIGHT + BUBBLE_GAP;
     return {
-      width: base.width + 332,
-      height: Math.max(base.height, 372),
+      width: Math.max(base.width, BUBBLE_WIDTH),
+      height: base.height + petOffsetY,
+      petOffsetX,
+      petOffsetY,
     };
   };
 
-  const syncWindowSize = (): void => {
-    const base = { width: stage.offsetWidth, height: stage.offsetHeight };
-    const size = resolvePetWindowSize(base);
-    void win.setSize(new LogicalSize(size.width, size.height));
+  const applyBubbleLayout = (layout: BubbleLayout, petSize: Size): void => {
+    stage.style.setProperty('--pet-offset-x', `${layout.petOffsetX}px`);
+    stage.style.setProperty('--pet-offset-y', `${layout.petOffsetY}px`);
+    stage.style.setProperty('--bubble-left', `${layout.petOffsetX + petSize.width / 2}px`);
+    stage.style.setProperty('--bubble-height', `${BUBBLE_HEIGHT}px`);
+    stage.style.setProperty('--bubble-gap', `${BUBBLE_GAP}px`);
   };
 
-  const setOpen = (next: boolean): void => {
+  const resolvePetWindowSize = (base: Size): Size => {
+    const petSize = base.width > 0 && base.height > 0 ? base : currentPetSize();
+    const layout = createLayout(petSize, open);
+    applyBubbleLayout(layout, petSize);
+    return { width: layout.width, height: layout.height };
+  };
+
+  const syncWindowFrame = (previousLayout: BubbleLayout, nextLayout: BubbleLayout): void => {
+    if (!win) return;
+
+    void Promise.all([win.outerPosition(), win.scaleFactor()])
+      .then(([position, scaleFactor]) => {
+        const dx = Math.round((previousLayout.petOffsetX - nextLayout.petOffsetX) * scaleFactor);
+        const dy = Math.round((previousLayout.petOffsetY - nextLayout.petOffsetY) * scaleFactor);
+        const updates: Promise<void>[] = [win.setSize(new LogicalSize(nextLayout.width, nextLayout.height))];
+        if (dx !== 0 || dy !== 0) {
+          updates.push(win.setPosition(new PhysicalPosition(position.x + dx, position.y + dy)));
+        }
+        return Promise.all(updates);
+      })
+      .catch((error) => {
+        console.warn('Failed to sync chat bubble window:', error);
+      });
+  };
+
+  const setOpen = (next: boolean, syncFrame = true): void => {
+    if (next === open) return;
+    const petSize = currentPetSize();
+    const previousLayout = createLayout(petSize, open);
+    const nextLayout = createLayout(petSize, next);
     open = next;
     bubble.hidden = !open;
-    syncWindowSize();
+    stage.classList.toggle('chat-open', open);
+    applyBubbleLayout(nextLayout, petSize);
+    if (syncFrame) {
+      syncWindowFrame(previousLayout, nextLayout);
+    }
   };
 
   canvas.addEventListener('pointerdown', (event) => {
@@ -109,12 +165,24 @@ export function setupChatBubble(stage: HTMLElement, canvas: HTMLCanvasElement): 
     setOpen(!open);
   });
 
-  document.addEventListener('close-chat-bubble', () => setOpen(false));
+  document.addEventListener('close-chat-bubble', (event) => {
+    const syncFrame = !(event instanceof CustomEvent) || event.detail?.syncFrame !== false;
+    setOpen(false, syncFrame);
+  });
 
   return {
     resolvePetWindowSize,
     close: () => setOpen(false),
   };
+}
+
+function safeCurrentWindow(): ReturnType<typeof getCurrentWindow> | null {
+  try {
+    return getCurrentWindow();
+  } catch (error) {
+    console.warn('Tauri window controls are unavailable outside Tauri:', error);
+    return null;
+  }
 }
 
 function escapeHtml(value: string): string {
@@ -124,5 +192,28 @@ function escapeHtml(value: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;')
-    .replaceAll('\n', '<br>');
+}
+
+function renderPart(part: ChatMessagePart): string {
+  const title = part.title ? `<div class="chat-part-title">${escapeHtml(part.title)}</div>` : '';
+  return `
+    <div class="chat-part chat-part-${part.kind}">
+      ${title}
+      <div class="chat-part-text">${renderInlineText(part.text)}</div>
+    </div>
+  `;
+}
+
+function renderInlineText(value: string): string {
+  const pattern = /([A-Za-z]:\\[^\s<>"']+|(?:\.{1,2}\/|\/)[^\s<>"']+)/g;
+  let result = '';
+  let lastIndex = 0;
+  for (const match of value.matchAll(pattern)) {
+    const path = match[0];
+    result += escapeHtml(value.slice(lastIndex, match.index));
+    result += `<span class="chat-path-chip">${escapeHtml(path)}</span>`;
+    lastIndex = (match.index ?? 0) + path.length;
+  }
+  result += escapeHtml(value.slice(lastIndex));
+  return result.replaceAll('\n', '<br>');
 }

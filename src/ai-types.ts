@@ -1,11 +1,8 @@
 export interface ClaudeSettings {
   pathToClaudeCodeExecutable: string;
-  cwd: string;
-  model: string;
   permissionMode: string;
-  maxTurns: number | null;
-  systemPrompt: string;
-  useProjectSettings: boolean;
+  useUserSettings: boolean;
+  customEnvText: string;
 }
 
 export interface AiSettings {
@@ -14,10 +11,11 @@ export interface AiSettings {
 }
 
 export interface AiPaths {
-  appDataDir: string;
+  workspaceDir: string;
   mypetsAiDir: string;
   claudeDir: string;
   sessionsDir: string;
+  logFile: string;
 }
 
 export interface AiState {
@@ -32,9 +30,18 @@ export interface ClaudeProviderState {
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
-  text: string;
+  parts: ChatMessagePart[];
   pending?: boolean;
   error?: boolean;
+}
+
+export type ChatPartKind = 'text' | 'thinking' | 'plan' | 'tool' | 'mcp' | 'skill' | 'path' | 'status';
+
+export interface ChatMessagePart {
+  id: string;
+  kind: ChatPartKind;
+  text: string;
+  title?: string;
 }
 
 export interface Conversation {
@@ -47,6 +54,7 @@ export interface Conversation {
 export interface AiChatRequest {
   requestId: string;
   conversationId: string;
+  workspaceFolder: string;
   prompt: string;
   providerState: ClaudeProviderState;
 }
@@ -54,6 +62,7 @@ export interface AiChatRequest {
 export type AiChatEvent =
   | { type: 'status'; requestId: string; status: string }
   | { type: 'session'; requestId: string; providerState: ClaudeProviderState }
+  | { type: 'part'; requestId: string; part: Omit<ChatMessagePart, 'id'> }
   | { type: 'delta'; requestId: string; text: string }
   | { type: 'done'; requestId: string; providerState?: ClaudeProviderState }
   | { type: 'error'; requestId: string; error: string };

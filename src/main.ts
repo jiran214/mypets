@@ -24,15 +24,11 @@ async function init() {
   setupInteractions(stage, canvas, resizeHandle, renderer, chatBubble.resolvePetWindowSize);
   setupContextMenu(canvas, renderer, () => transitionToLandingMode());
 
-  const { autoStart, meta } = await initLandingPage(chatRuntime);
+  await initLandingPage(chatRuntime);
 
   document.addEventListener('start-pet', () => {
     transitionToPetMode(renderer, 'idle', chatBubble.resolvePetWindowSize);
   });
-
-  if (autoStart && meta) {
-    await transitionToPetMode(renderer, 'idle', chatBubble.resolvePetWindowSize);
-  }
 }
 
 init();

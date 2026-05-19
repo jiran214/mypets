@@ -5,7 +5,7 @@ import type { PetMeta } from './types';
 export async function pickPetFolder(): Promise<string | null> {
   return open({
     directory: true,
-    title: 'Select Pet Folder',
+    title: '选择桌宠文件夹',
   }) as Promise<string | null>;
 }
 

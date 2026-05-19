@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/mirrors/tauri/tauri-v2/crates/tauri-cli/schema.json",
-  "productName": "Desktop Pet",
+  "productName": "Mypets",
   "version": "0.1.0",
   "identifier": "com.mypets.desktop-pet",
   "build": {
@@ -13,13 +13,13 @@
     "windows": [
       {
         "label": "main",
-        "title": "Desktop Pet",
+        "title": "Mypets",
         "transparent": true,
         "decorations": true,
         "shadow": false,
         "resizable": false,
-        "width": 720,
-        "height": 600
+        "width": 920,
+        "height": 640
       }
     ],
     "security": {}

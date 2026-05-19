@@ -61,7 +61,8 @@ class InteractionManager {
 }
 
 function setupDragDirection(canvas: HTMLCanvasElement, manager: InteractionManager): void {
-  const appWindow = getCurrentWindow();
+  const appWindow = safeCurrentWindow();
+  if (!appWindow) return;
   let pointerId: number | null = null;
   let startScreenX = 0;
   let startScreenY = 0;
@@ -192,7 +193,7 @@ function setupResizeHandle(
   renderer: SpriteRenderer,
   resolveWindowSize?: (base: Size) => Size,
 ): void {
-  const appWindow = getCurrentWindow();
+  const appWindow = safeCurrentWindow();
   let scale = 1;
   let pointerId: number | null = null;
   let startScale = 1;
@@ -204,9 +205,11 @@ function setupResizeHandle(
     if (stage.style.display === 'none') {
       return;
     }
-    const base = { width: stage.offsetWidth, height: stage.offsetHeight };
+    const base = { width: canvas.offsetWidth, height: canvas.offsetHeight };
     const size = resolveWindowSize ? resolveWindowSize(base) : base;
-    void appWindow.setSize(new LogicalSize(size.width, size.height));
+    if (appWindow) {
+      void appWindow.setSize(new LogicalSize(size.width, size.height));
+    }
   };
 
   syncStageScale(stage, canvas, renderer, scale);
@@ -245,9 +248,11 @@ function setupResizeHandle(
 
     scale = nextScale;
     syncStageScale(stage, canvas, renderer, scale);
-    const base = { width: stage.offsetWidth, height: stage.offsetHeight };
+    const base = { width: canvas.offsetWidth, height: canvas.offsetHeight };
     const size = resolveWindowSize ? resolveWindowSize(base) : base;
-    void appWindow.setSize(new LogicalSize(size.width, size.height));
+    if (appWindow) {
+      void appWindow.setSize(new LogicalSize(size.width, size.height));
+    }
   });
 
   const stopResize = (e?: PointerEvent) => {
@@ -260,6 +265,15 @@ function setupResizeHandle(
 
   handle.addEventListener('pointerup', stopResize);
   handle.addEventListener('pointercancel', stopResize);
+}
+
+function safeCurrentWindow(): ReturnType<typeof getCurrentWindow> | null {
+  try {
+    return getCurrentWindow();
+  } catch (error) {
+    console.warn('Tauri window controls are unavailable outside Tauri:', error);
+    return null;
+  }
 }
 
 export function setupInteractions(

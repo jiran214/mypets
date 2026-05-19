@@ -6,6 +6,7 @@ import {
 import type {
   AiChatEvent,
   AiState,
+  ChatMessagePart,
   ChatMessage,
   ClaudeProviderState,
   Conversation,
@@ -15,6 +16,7 @@ type Listener = () => void;
 
 export class ChatRuntime {
   private aiState: AiState | null = null;
+  private workspaceFolder = '';
   private conversation: Conversation = {
     id: `conv-${Date.now()}`,
     providerId: 'claude',
@@ -27,7 +29,6 @@ export class ChatRuntime {
   private listeners = new Set<Listener>();
 
   async init(): Promise<void> {
-    this.aiState = await loadAiState();
     await listenToAiChatEvents((event) => this.handleEvent(event));
     this.notify();
   }
@@ -47,6 +48,31 @@ export class ChatRuntime {
     this.notify();
   }
 
+  getWorkspaceFolder(): string {
+    return this.workspaceFolder;
+  }
+
+  hasWorkspace(): boolean {
+    return Boolean(this.workspaceFolder);
+  }
+
+  async setWorkspace(folder: string): Promise<void> {
+    if (folder === this.workspaceFolder) return;
+
+    this.workspaceFolder = folder;
+    this.aiState = folder ? await loadAiState(folder) : null;
+    this.conversation = {
+      id: `conv-${Date.now()}`,
+      providerId: 'claude',
+      providerState: {},
+      messages: [],
+    };
+    this.currentRequestId = null;
+    this.currentAssistantId = null;
+    this.statusText = folder ? '' : '请先选择桌宠工作空间';
+    this.notify();
+  }
+
   getConversation(): Conversation {
     return this.conversation;
   }
@@ -62,17 +88,22 @@ export class ChatRuntime {
   async send(text: string): Promise<void> {
     const prompt = text.trim();
     if (!prompt || this.currentRequestId) return;
+    if (!this.workspaceFolder) {
+      this.statusText = '请先选择桌宠工作空间';
+      this.notify();
+      return;
+    }
 
     const requestId = crypto.randomUUID();
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      text: prompt,
+      parts: [{ id: crypto.randomUUID(), kind: 'text', text: prompt }],
     };
     const assistantMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'assistant',
-      text: '',
+      parts: [],
       pending: true,
     };
 
@@ -86,6 +117,7 @@ export class ChatRuntime {
       await sendAiChatMessage({
         requestId,
         conversationId: this.conversation.id,
+        workspaceFolder: this.workspaceFolder,
         prompt,
         providerState: this.conversation.providerState,
       });
@@ -112,7 +144,17 @@ export class ChatRuntime {
     if (event.type === 'delta') {
       const assistant = this.currentAssistant();
       if (!assistant) return;
-      assistant.text += event.text;
+      this.appendPart(assistant, { kind: 'text', text: event.text });
+      assistant.pending = true;
+      this.statusText = 'Claude 正在回复...';
+      this.notify();
+      return;
+    }
+
+    if (event.type === 'part') {
+      const assistant = this.currentAssistant();
+      if (!assistant) return;
+      this.appendPart(assistant, event.part);
       assistant.pending = true;
       this.statusText = 'Claude 正在回复...';
       this.notify();
@@ -142,12 +184,29 @@ export class ChatRuntime {
     return this.conversation.messages.find((message) => message.id === this.currentAssistantId) ?? null;
   }
 
+  private appendPart(message: ChatMessage, part: Omit<ChatMessagePart, 'id'>): void {
+    const last = message.parts[message.parts.length - 1];
+    if (last && last.kind === part.kind && last.title === part.title && (part.kind === 'text' || part.kind === 'thinking')) {
+      last.text += part.text;
+      return;
+    }
+
+    message.parts.push({
+      ...part,
+      id: crypto.randomUUID(),
+    });
+  }
+
   private finish(): void {
     const assistant = this.currentAssistant();
     if (assistant) {
       assistant.pending = false;
-      if (!assistant.text.trim()) {
-        assistant.text = 'Claude 没有返回文本内容。';
+      if (!assistant.parts.some((part) => part.text.trim())) {
+        assistant.parts.push({
+          id: crypto.randomUUID(),
+          kind: 'status',
+          text: 'Claude 没有返回文本内容。',
+        });
       }
     }
     this.currentRequestId = null;
@@ -161,7 +220,11 @@ export class ChatRuntime {
     if (assistant) {
       assistant.pending = false;
       assistant.error = true;
-      assistant.text = error || 'Claude 请求失败。';
+      assistant.parts = [{
+        id: crypto.randomUUID(),
+        kind: 'status',
+        text: error || 'Claude 请求失败。',
+      }];
     }
     this.currentRequestId = null;
     this.currentAssistantId = null;

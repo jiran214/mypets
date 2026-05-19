@@ -5,15 +5,15 @@ import type { SpriteRenderer } from './renderer';
 import type { AnimationState } from './types';
 
 const STATE_LABELS: Record<AnimationState, string> = {
-  'idle': 'Idle',
-  'running-right': 'Running Right',
-  'running-left': 'Running Left',
-  'waving': 'Waving',
-  'jumping': 'Jumping',
-  'failed': 'Failed',
-  'waiting': 'Waiting',
-  'running': 'Running (Working)',
-  'review': 'Review',
+  'idle': '待机',
+  'running-right': '向右跑',
+  'running-left': '向左跑',
+  'waving': '挥手',
+  'jumping': '跳跃',
+  'failed': '失败',
+  'waiting': '等待',
+  'running': '工作中',
+  'review': '检查',
 };
 
 export function setupContextMenu(canvas: HTMLCanvasElement, renderer: SpriteRenderer, onOpenSettings: () => void): void {
@@ -34,13 +34,13 @@ export function setupContextMenu(canvas: HTMLCanvasElement, renderer: SpriteRend
         separator,
         {
           id: 'settings',
-          text: 'Settings',
+          text: '设置',
           action: () => onOpenSettings(),
         },
         separator,
         {
           id: 'quit',
-          text: 'Quit',
+          text: '退出',
           action: () => getCurrentWindow().close(),
         },
       ],

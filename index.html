@@ -3,108 +3,105 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Desktop Pet</title>
+  <title>Mypets</title>
 </head>
 <body>
   <div id="landing-page">
     <header class="landing-header">
-      <span class="header-icon">🐾</span>
+      <div class="brand-mark">宠</div>
       <div>
-        <h1>Desktop Pet</h1>
-        <p class="subtitle">桌宠管理</p>
+        <h1>多桌宠管理</h1>
+        <p class="subtitle">选择一个工作空间，然后启动桌宠</p>
       </div>
     </header>
 
-    <nav class="tab-nav" aria-label="管理页">
-      <button class="tab-button active" type="button" data-tab="skin">皮肤</button>
-      <button class="tab-button" type="button" data-tab="settings">设置</button>
-      <button class="tab-button" type="button" data-tab="chat">聊天</button>
-    </nav>
-
-    <main class="tab-content">
-      <section class="tab-panel active" id="tab-skin">
-        <div class="preview-area" id="preview-area">
-          <div class="preview-placeholder" id="preview-placeholder">
-            <span class="placeholder-icon">🐱</span>
-            <span class="placeholder-text">选择宠物文件夹</span>
+    <div class="manager-layout">
+      <aside class="workspace-sidebar">
+        <div class="sidebar-head">
+          <div>
+            <strong>桌宠列表</strong>
+            <span><em id="workspace-count">0</em> 个</span>
           </div>
-          <div class="preview-loaded" id="preview-loaded" style="display:none">
-            <canvas id="preview-canvas" width="96" height="104"></canvas>
-            <div class="pet-info">
-              <h2 id="pet-name"></h2>
-              <p id="pet-description"></p>
+          <button id="create-workspace-btn" class="icon-button" type="button" title="创建">+</button>
+        </div>
+        <div id="workspace-list" class="workspace-list"></div>
+      </aside>
+
+      <section class="workspace-main">
+        <section class="workspace-summary">
+          <div class="summary-copy">
+            <h2 id="current-workspace-name">请选择或创建桌宠工作空间</h2>
+            <p id="current-workspace-description">一次只能启动一只桌宠。</p>
+            <code id="current-workspace-folder">导入包含 pet.json 的文件夹</code>
+          </div>
+          <button id="start-btn" class="btn btn-primary" disabled>开始</button>
+        </section>
+
+        <nav class="tab-nav" aria-label="管理页">
+          <button class="tab-button active" type="button" data-tab="skin">皮肤</button>
+          <button class="tab-button" type="button" data-tab="settings">设置</button>
+          <button class="tab-button" type="button" data-tab="chat">聊天</button>
+        </nav>
+
+        <main class="tab-content">
+          <section class="tab-panel active" id="tab-skin">
+            <div class="preview-area" id="preview-area">
+              <div class="preview-placeholder" id="preview-placeholder">
+                <span class="placeholder-icon">pet.json</span>
+                <span class="placeholder-text">选择包含 pet.json 和贴图资源的文件夹</span>
+              </div>
+              <div class="preview-loaded" id="preview-loaded" style="display:none">
+                <canvas id="preview-canvas" width="120" height="130"></canvas>
+                <div class="pet-info">
+                  <h2 id="pet-name"></h2>
+                  <p id="pet-description"></p>
+                  <code id="selected-workspace-path"></code>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        <div class="btn-row">
-          <button id="select-folder-btn" class="btn btn-secondary">
-            <span class="btn-icon">📁</span>
-            选择文件夹
-          </button>
-          <button id="start-btn" class="btn btn-primary" disabled>
-            <span class="btn-icon">▶</span>
-            开始
-          </button>
-        </div>
-      </section>
+            <div class="btn-row">
+              <button id="select-folder-btn" class="btn btn-secondary" type="button">导入桌宠文件夹</button>
+            </div>
+          </section>
 
-      <section class="tab-panel" id="tab-settings">
-        <div class="settings-grid">
-          <label>
-            <span>Provider</span>
-            <select id="provider-id">
-              <option value="claude">Claude Agent SDK</option>
-            </select>
-          </label>
-          <label>
-            <span>Claude CLI / SDK 路径</span>
-            <input id="claude-executable" type="text" placeholder="留空使用 SDK 默认二进制" />
-          </label>
-          <label>
-            <span>工作目录</span>
-            <input id="claude-cwd" type="text" placeholder="留空使用应用目录" />
-          </label>
-          <label>
-            <span>模型</span>
-            <input id="claude-model" type="text" placeholder="留空使用 Claude 默认模型" />
-          </label>
-          <label>
-            <span>权限模式</span>
-            <select id="claude-permission-mode">
-              <option value="default">default</option>
-              <option value="acceptEdits">acceptEdits</option>
-              <option value="plan">plan</option>
-              <option value="bypassPermissions">bypassPermissions</option>
-            </select>
-          </label>
-          <label>
-            <span>最大轮数</span>
-            <input id="claude-max-turns" type="number" min="1" max="50" />
-          </label>
-          <label class="settings-wide">
-            <span>系统提示词</span>
-            <textarea id="claude-system-prompt" rows="3"></textarea>
-          </label>
-          <label class="settings-check settings-wide">
-            <input id="claude-project-settings" type="checkbox" />
-            <span>加载工作目录下的 .claude 项目配置</span>
-          </label>
-        </div>
-        <div class="path-list">
-          <div><span>.mypets-ai</span><code id="ai-path-mypets"></code></div>
-          <div><span>.claude</span><code id="ai-path-claude"></code></div>
-        </div>
-        <div class="settings-actions">
-          <button id="save-ai-settings" class="btn btn-primary" type="button">保存设置</button>
-          <span id="ai-settings-status"></span>
-        </div>
-      </section>
+          <section class="tab-panel" id="tab-settings">
+            <div class="settings-grid">
+              <label class="settings-wide">
+                <span>Claude CLI 路径</span>
+                <input id="claude-executable" data-ai-setting type="text" placeholder="不填写会自动查找 Claude" />
+              </label>
+              <label>
+                <span>权限模式</span>
+                <select id="claude-permission-mode" data-ai-setting>
+                  <option value="default">default</option>
+                  <option value="acceptEdits">acceptEdits</option>
+                  <option value="plan">plan</option>
+                  <option value="bypassPermissions">bypassPermissions</option>
+                  <option value="dontAsk">dontAsk</option>
+                </select>
+              </label>
+              <label class="settings-toggle">
+                <input id="claude-user-settings" data-ai-setting type="checkbox" checked />
+                <span>加载用户 Claude 设置</span>
+              </label>
+              <label class="settings-wide">
+                <span>自定义环境变量</span>
+                <textarea id="claude-custom-env" data-ai-setting rows="5" placeholder="KEY=value"></textarea>
+              </label>
+            </div>
+            <div class="settings-actions">
+              <button id="save-ai-settings" class="btn btn-primary" type="button">保存设置</button>
+              <span id="ai-settings-status"></span>
+            </div>
+          </section>
 
-      <section class="tab-panel" id="tab-chat">
-        <div id="chat-tab-root"></div>
+          <section class="tab-panel" id="tab-chat">
+            <div id="chat-tab-root"></div>
+          </section>
+        </main>
       </section>
-    </main>
+    </div>
   </div>
 
   <div id="pet-stage" style="display:none">
