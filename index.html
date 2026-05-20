@@ -53,12 +53,7 @@
                 <span class="placeholder-text">选择包含 pet.json 和贴图资源的文件夹</span>
               </div>
               <div class="preview-loaded" id="preview-loaded" style="display:none">
-                <canvas id="preview-canvas" width="120" height="130"></canvas>
-                <div class="pet-info">
-                  <h2 id="pet-name"></h2>
-                  <p id="pet-description"></p>
-                  <code id="selected-workspace-path"></code>
-                </div>
+                <canvas id="preview-canvas" width="192" height="208"></canvas>
               </div>
             </div>
 
@@ -70,7 +65,10 @@
           <section class="tab-panel" id="tab-settings">
             <div class="settings-grid">
               <label class="settings-wide">
-                <span>Claude CLI 路径</span>
+                <span class="settings-label-row">
+                  <span>Claude CLI 路径</span>
+                  <a href="https://code.claude.com/docs/zh-CN/overview#%E5%BC%80%E5%A7%8B%E4%BD%BF%E7%94%A8" target="_blank" rel="noreferrer">下载地址</a>
+                </span>
                 <input id="claude-executable" data-ai-setting type="text" placeholder="不填写会自动查找 Claude" />
               </label>
               <label>

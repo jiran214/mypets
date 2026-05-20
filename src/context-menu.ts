@@ -1,4 +1,5 @@
 import { Menu, PredefinedMenuItem } from '@tauri-apps/api/menu';
+import { emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ANIMATIONS } from './animation-data';
 import type { SpriteRenderer } from './renderer';
@@ -16,7 +17,12 @@ const STATE_LABELS: Record<AnimationState, string> = {
   'review': '检查',
 };
 
-export function setupContextMenu(canvas: HTMLCanvasElement, renderer: SpriteRenderer, onOpenSettings: () => void): void {
+export function setupContextMenu(
+  canvas: HTMLCanvasElement,
+  renderer: SpriteRenderer,
+  onOpenSettings: () => void,
+  folder: string,
+): void {
   canvas.addEventListener('contextmenu', async (e: MouseEvent) => {
     e.preventDefault();
 
@@ -41,7 +47,15 @@ export function setupContextMenu(canvas: HTMLCanvasElement, renderer: SpriteRend
         {
           id: 'quit',
           text: '退出',
-          action: () => getCurrentWindow().close(),
+          action: () => {
+            void emit('pet-window-closed', { folder })
+              .catch((error) => {
+                console.warn('Failed to emit pet close event:', error);
+              })
+              .finally(() => {
+                void getCurrentWindow().close();
+              });
+          },
         },
       ],
     });

@@ -27,6 +27,15 @@ export interface ClaudeProviderState {
   claudeSessionId?: string;
 }
 
+export interface AiSessionSummary {
+  id: string;
+  providerId: 'claude';
+  providerState: ClaudeProviderState;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -51,11 +60,18 @@ export interface Conversation {
   messages: ChatMessage[];
 }
 
+export interface ChatAttachment {
+  id: string;
+  path: string;
+  name: string;
+}
+
 export interface AiChatRequest {
   requestId: string;
   conversationId: string;
   workspaceFolder: string;
   prompt: string;
+  attachments?: ChatAttachment[];
   providerState: ClaudeProviderState;
 }
 

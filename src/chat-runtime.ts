@@ -1,11 +1,14 @@
 import {
   listenToAiChatEvents,
+  listAiSessions,
   loadAiState,
   sendAiChatMessage,
 } from './ai-api';
 import type {
   AiChatEvent,
+  AiSessionSummary,
   AiState,
+  ChatAttachment,
   ChatMessagePart,
   ChatMessage,
   ClaudeProviderState,
@@ -13,6 +16,11 @@ import type {
 } from './ai-types';
 
 type Listener = () => void;
+
+interface StoredConversation {
+  title: string;
+  conversation: Conversation;
+}
 
 export class ChatRuntime {
   private aiState: AiState | null = null;
@@ -23,8 +31,10 @@ export class ChatRuntime {
     providerState: {},
     messages: [],
   };
+  private conversationTitle = '';
   private currentRequestId: string | null = null;
   private currentAssistantId: string | null = null;
+  private sessions: AiSessionSummary[] = [];
   private statusText = '';
   private listeners = new Set<Listener>();
 
@@ -61,12 +71,14 @@ export class ChatRuntime {
 
     this.workspaceFolder = folder;
     this.aiState = folder ? await loadAiState(folder) : null;
+    this.sessions = folder ? await this.loadSessions() : [];
     this.conversation = {
       id: `conv-${Date.now()}`,
       providerId: 'claude',
       providerState: {},
       messages: [],
     };
+    this.conversationTitle = '';
     this.currentRequestId = null;
     this.currentAssistantId = null;
     this.statusText = folder ? '' : '请先选择桌宠工作空间';
@@ -77,6 +89,14 @@ export class ChatRuntime {
     return this.conversation;
   }
 
+  getConversationTitle(): string {
+    return this.conversationTitle;
+  }
+
+  getSessions(): AiSessionSummary[] {
+    return this.sessions;
+  }
+
   getStatusText(): string {
     return this.statusText;
   }
@@ -85,9 +105,50 @@ export class ChatRuntime {
     return this.currentRequestId !== null;
   }
 
-  async send(text: string): Promise<void> {
+  startNewConversation(): void {
+    if (this.currentRequestId) return;
+
+    this.conversation = {
+      id: `conv-${Date.now()}`,
+      providerId: 'claude',
+      providerState: {},
+      messages: [],
+    };
+    this.conversationTitle = '';
+    this.currentAssistantId = null;
+    this.statusText = this.workspaceFolder ? '' : '请先选择桌宠工作空间';
+    this.notify();
+  }
+
+  resumeConversation(session: AiSessionSummary): void {
+    if (this.currentRequestId) return;
+
+    const stored = this.loadStoredConversation(session.id);
+    this.conversation = stored?.conversation ?? {
+      id: session.id,
+      providerId: 'claude',
+      providerState: session.providerState,
+      messages: [],
+    };
+    this.conversation.providerState = {
+      ...this.conversation.providerState,
+      ...session.providerState,
+    };
+    this.conversationTitle = stored?.title || session.title || '';
+    this.currentAssistantId = null;
+    this.statusText = '';
+    this.notify();
+  }
+
+  async refreshSessions(): Promise<AiSessionSummary[]> {
+    this.sessions = await this.loadSessions();
+    this.notify();
+    return this.sessions;
+  }
+
+  async send(text: string, attachments: ChatAttachment[] = []): Promise<void> {
     const prompt = text.trim();
-    if (!prompt || this.currentRequestId) return;
+    if ((!prompt && attachments.length === 0) || this.currentRequestId) return;
     if (!this.workspaceFolder) {
       this.statusText = '请先选择桌宠工作空间';
       this.notify();
@@ -98,7 +159,15 @@ export class ChatRuntime {
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      parts: [{ id: crypto.randomUUID(), kind: 'text', text: prompt }],
+      parts: [
+        ...(prompt ? [{ id: crypto.randomUUID(), kind: 'text' as const, text: prompt }] : []),
+        ...attachments.map((attachment) => ({
+          id: crypto.randomUUID(),
+          kind: 'path' as const,
+          title: attachment.name,
+          text: attachment.path,
+        })),
+      ],
     };
     const assistantMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -109,8 +178,12 @@ export class ChatRuntime {
 
     this.currentRequestId = requestId;
     this.currentAssistantId = assistantMessage.id;
+    if (!this.conversationTitle) {
+      this.conversationTitle = createTitle(prompt || attachments[0]?.name || '文件');
+    }
     this.statusText = '正在连接 Claude...';
     this.conversation.messages.push(userMessage, assistantMessage);
+    this.saveCurrentConversation();
     this.notify();
 
     try {
@@ -119,6 +192,7 @@ export class ChatRuntime {
         conversationId: this.conversation.id,
         workspaceFolder: this.workspaceFolder,
         prompt,
+        attachments,
         providerState: this.conversation.providerState,
       });
     } catch (error) {
@@ -137,6 +211,7 @@ export class ChatRuntime {
 
     if (event.type === 'session') {
       this.mergeProviderState(event.providerState);
+      this.saveCurrentConversation();
       this.notify();
       return;
     }
@@ -147,6 +222,7 @@ export class ChatRuntime {
       this.appendPart(assistant, { kind: 'text', text: event.text });
       assistant.pending = true;
       this.statusText = 'Claude 正在回复...';
+      this.saveCurrentConversation();
       this.notify();
       return;
     }
@@ -157,6 +233,7 @@ export class ChatRuntime {
       this.appendPart(assistant, event.part);
       assistant.pending = true;
       this.statusText = 'Claude 正在回复...';
+      this.saveCurrentConversation();
       this.notify();
       return;
     }
@@ -212,7 +289,11 @@ export class ChatRuntime {
     this.currentRequestId = null;
     this.currentAssistantId = null;
     this.statusText = '';
+    this.saveCurrentConversation();
     this.notify();
+    void this.refreshSessions().catch((error) => {
+      console.warn('Failed to refresh AI sessions:', error);
+    });
   }
 
   private finishWithError(error: string): void {
@@ -229,6 +310,7 @@ export class ChatRuntime {
     this.currentRequestId = null;
     this.currentAssistantId = null;
     this.statusText = '';
+    this.saveCurrentConversation();
     this.notify();
   }
 
@@ -237,4 +319,67 @@ export class ChatRuntime {
       listener();
     }
   }
+
+  private async loadSessions(): Promise<AiSessionSummary[]> {
+    if (!this.workspaceFolder) return [];
+
+    try {
+      return await listAiSessions(this.workspaceFolder);
+    } catch (error) {
+      console.warn('Failed to load AI sessions:', error);
+      return [];
+    }
+  }
+
+  private saveCurrentConversation(): void {
+    if (!this.workspaceFolder || this.conversation.messages.length === 0) return;
+
+    try {
+      const stored: StoredConversation = {
+        title: this.conversationTitle,
+        conversation: this.conversation,
+      };
+      localStorage.setItem(conversationStorageKey(this.workspaceFolder, this.conversation.id), JSON.stringify(stored));
+    } catch (error) {
+      console.warn('Failed to save chat conversation:', error);
+    }
+  }
+
+  private loadStoredConversation(conversationId: string): StoredConversation | null {
+    if (!this.workspaceFolder) return null;
+
+    try {
+      const raw = localStorage.getItem(conversationStorageKey(this.workspaceFolder, conversationId));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<StoredConversation>;
+      if (!isConversation(parsed.conversation)) return null;
+      return {
+        title: typeof parsed.title === 'string' ? parsed.title : '',
+        conversation: parsed.conversation,
+      };
+    } catch (error) {
+      console.warn('Failed to load chat conversation:', error);
+      return null;
+    }
+  }
+}
+
+function createTitle(prompt: string): string {
+  const compact = prompt.replace(/\s+/g, ' ').trim();
+  return compact.length > 28 ? `${compact.slice(0, 28)}...` : compact;
+}
+
+function conversationStorageKey(workspaceFolder: string, conversationId: string): string {
+  return `mypets-chat-conversation:${workspaceFolder}:${conversationId}`;
+}
+
+function isConversation(value: unknown): value is Conversation {
+  if (!value || typeof value !== 'object') return false;
+  const conversation = value as Partial<Conversation>;
+  return (
+    typeof conversation.id === 'string'
+    && conversation.providerId === 'claude'
+    && typeof conversation.providerState === 'object'
+    && Array.isArray(conversation.messages)
+  );
 }

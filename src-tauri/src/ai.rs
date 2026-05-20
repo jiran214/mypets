@@ -50,6 +50,14 @@ pub struct AiState {
     pub paths: AiPaths,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiChatAttachment {
+    pub path: String,
+    #[serde(default)]
+    pub name: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiChatRequest {
@@ -58,12 +66,25 @@ pub struct AiChatRequest {
     pub workspace_folder: String,
     pub prompt: String,
     #[serde(default)]
+    pub attachments: Vec<AiChatAttachment>,
+    #[serde(default)]
     pub provider_state: Value,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AiSessionMeta {
+    id: String,
+    provider_id: String,
+    provider_state: Value,
+    title: String,
+    created_at: u64,
+    updated_at: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSessionSummary {
     id: String,
     provider_id: String,
     provider_state: Value,
@@ -127,7 +148,10 @@ fn storage_paths(workspace_folder: &str) -> Result<StoragePaths, String> {
 
     let workspace_dir = PathBuf::from(workspace_folder);
     if !workspace_dir.exists() {
-        return Err(format!("Workspace folder not found: {}", workspace_dir.display()));
+        return Err(format!(
+            "Workspace folder not found: {}",
+            workspace_dir.display()
+        ));
     }
     let workspace_dir = fs::canonicalize(&workspace_dir).unwrap_or(workspace_dir);
     let mypets_ai_dir = workspace_dir.join(".mypets-ai");
@@ -262,6 +286,30 @@ fn write_session_meta(
     fs::write(path, format!("{raw}\n")).map_err(|err| err.to_string())
 }
 
+fn attachment_title(attachment: &AiChatAttachment) -> String {
+    if !attachment.name.trim().is_empty() {
+        return attachment.name.clone();
+    }
+    Path::new(&attachment.path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(&attachment.path)
+        .to_string()
+}
+
+fn read_session_meta(path: &Path) -> Option<AiSessionSummary> {
+    let raw = fs::read_to_string(path).ok()?;
+    let meta = serde_json::from_str::<AiSessionMeta>(&raw).ok()?;
+    Some(AiSessionSummary {
+        id: meta.id,
+        provider_id: meta.provider_id,
+        provider_state: meta.provider_state,
+        title: meta.title,
+        created_at: meta.created_at,
+        updated_at: meta.updated_at,
+    })
+}
+
 fn helper_path(app: &AppHandle) -> Result<PathBuf, String> {
     let project_helper = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -296,6 +344,32 @@ pub fn load_ai_state(workspace_folder: String) -> Result<AiState, String> {
 }
 
 #[tauri::command]
+pub fn list_ai_sessions(workspace_folder: String) -> Result<Vec<AiSessionSummary>, String> {
+    let paths = storage_paths(&workspace_folder)?;
+    ensure_storage(&paths)?;
+    let mut sessions = Vec::new();
+
+    for entry in fs::read_dir(&paths.sessions_dir).map_err(|err| err.to_string())? {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let path = entry.path();
+        let is_meta = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".meta.json"));
+        if is_meta {
+            if let Some(meta) = read_session_meta(&path) {
+                sessions.push(meta);
+            }
+        }
+    }
+
+    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(sessions)
+}
+
+#[tauri::command]
 pub fn save_ai_settings(workspace_folder: String, settings: AiSettings) -> Result<AiState, String> {
     let paths = storage_paths(&workspace_folder)?;
     ensure_storage(&paths)?;
@@ -311,11 +385,26 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
     let paths = storage_paths(&request.workspace_folder)?;
     ensure_storage(&paths)?;
     let settings = load_settings(&paths)?;
+    let session_prompt = if request.prompt.trim().is_empty() {
+        let file_names = request
+            .attachments
+            .iter()
+            .map(attachment_title)
+            .collect::<Vec<_>>()
+            .join(", ");
+        if file_names.is_empty() {
+            "文件".to_string()
+        } else {
+            file_names
+        }
+    } else {
+        request.prompt.clone()
+    };
     write_session_meta(
         &paths,
         &request.conversation_id,
         request.provider_state.clone(),
-        &request.prompt,
+        &session_prompt,
     )?;
 
     let helper = match helper_path(&app) {
@@ -331,12 +420,16 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
         "requestId": request.request_id,
         "conversationId": request.conversation_id,
         "prompt": request.prompt,
+        "attachments": request.attachments,
         "providerState": request.provider_state,
         "settings": settings.claude,
         "paths": public_paths(&paths),
     });
 
-    append_ai_log(&paths, &format!("Starting Claude request {}", request.request_id));
+    append_ai_log(
+        &paths,
+        &format!("Starting Claude request {}", request.request_id),
+    );
 
     let mut child = match Command::new("node")
         .arg(helper)

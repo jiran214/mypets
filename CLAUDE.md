@@ -104,3 +104,8 @@ AI 设置存储在每个工作空间的 `.mypets-ai/settings.json`，会话元�
 ## 安全模型
 
 Tauri v2 capabilities 定义在 `src-tauri/capabilities/default.json`，仅授予必要的窗口操作和文件对话框权限。Asset protocol scope 为 `["**"]`（允许所有本地路径）。
+
+
+## 补充
+只做关键测试
+

@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, normalize } from 'node:path';
+import { dirname, join, normalize } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 let activeRequestId = 'unknown';
+const MAX_INLINE_ATTACHMENT_BYTES = 256 * 1024;
 
 function emit(event) {
   process.stdout.write(`${JSON.stringify(event)}\n`);
@@ -20,6 +21,79 @@ function existingFile(path) {
   } catch {
     return undefined;
   }
+}
+
+function fileNameFromPath(path) {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
+function statPath(path) {
+  try {
+    return statSync(path);
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeAttachments(value) {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => {
+      const path = asOptionalString(item?.path);
+      if (!path) return undefined;
+      return {
+        path: normalize(path),
+        name: asOptionalString(item?.name) ?? fileNameFromPath(path),
+      };
+    })
+    .filter(Boolean);
+}
+
+function attachmentDirectories(attachments) {
+  const directories = new Set();
+  for (const attachment of attachments) {
+    const stat = statPath(attachment.path);
+    if (!stat) continue;
+    directories.add(stat.isDirectory() ? attachment.path : dirname(attachment.path));
+  }
+  return [...directories];
+}
+
+function isTextBuffer(buffer) {
+  return !buffer.includes(0);
+}
+
+function renderAttachmentContext(attachment) {
+  const stat = statPath(attachment.path);
+  const header = `### ${attachment.name}\n路径: ${attachment.path}`;
+  if (!stat) return `${header}\n状态: 文件不存在或不可访问。`;
+  if (stat.isDirectory()) return `${header}\n类型: 文件夹，请按路径读取需要的文件。`;
+  if (!stat.isFile()) return `${header}\n类型: 非普通文件，请按路径处理。`;
+  if (stat.size > MAX_INLINE_ATTACHMENT_BYTES) {
+    return `${header}\n大小: ${stat.size} bytes\n内容: 文件较大，已按路径加入上下文。`;
+  }
+
+  let buffer;
+  try {
+    buffer = readFileSync(attachment.path);
+  } catch {
+    return `${header}\n状态: 文件无法读取，已按路径加入上下文。`;
+  }
+  if (!isTextBuffer(buffer)) {
+    return `${header}\n大小: ${stat.size} bytes\n内容: 二进制文件，已按路径加入上下文。`;
+  }
+
+  return `${header}\n内容:\n${buffer.toString('utf8')}`;
+}
+
+function buildPrompt(input, attachments) {
+  const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
+  if (attachments.length === 0) return prompt;
+
+  const context = attachments.map(renderAttachmentContext).join('\n\n');
+  const userText = prompt || '请查看这些上传文件。';
+  return `${userText}\n\n用户上传了以下文件，作为本轮聊天上下文。小文本文件内容已直接附在下面；其它文件请按路径读取。\n\n${context}`;
 }
 
 function execText(command, args) {
@@ -180,7 +254,6 @@ function emitAssistantParts(requestId, message, includeText) {
 
 function emitSdkStatusPart(requestId, message) {
   if (message?.type === 'system' && message.subtype === 'init') {
-    emitPart(requestId, 'status', `${message.model || 'Claude'} · ${message.cwd || ''}`, '会话');
     return;
   }
 
@@ -205,12 +278,14 @@ async function main() {
   const settings = input.settings ?? {};
   const providerState = input.providerState ?? {};
   const requestId = input.requestId;
+  const attachments = normalizeAttachments(input.attachments);
   activeRequestId = requestId;
   let sawTextDelta = false;
   let lastSessionId = asOptionalString(providerState.claudeSessionId);
 
   const workspaceDir = asOptionalString(input.paths?.workspaceDir) ?? process.cwd();
   const claudeDir = asOptionalString(input.paths?.claudeDir);
+  const additionalDirectories = attachmentDirectories(attachments);
   const customEnv = parseCustomEnv(settings.customEnvText);
   const options = {
     includePartialMessages: true,
@@ -224,6 +299,10 @@ async function main() {
       CLAUDE_AGENT_SDK_CLIENT_APP: 'mypets',
     },
   };
+
+  if (additionalDirectories.length > 0) {
+    options.additionalDirectories = additionalDirectories;
+  }
 
   if (settings.permissionMode === 'bypassPermissions') {
     options.allowDangerouslySkipPermissions = true;
@@ -245,7 +324,7 @@ async function main() {
 
   emit({ type: 'status', requestId, status: 'started' });
 
-  for await (const message of query({ prompt: input.prompt, options })) {
+  for await (const message of query({ prompt: buildPrompt(input, attachments), options })) {
     if (message.session_id && message.session_id !== lastSessionId) {
       lastSessionId = message.session_id;
       emit({

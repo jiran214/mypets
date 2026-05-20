@@ -1,5 +1,6 @@
 import { pickPetFolder, loadPet, loadSpritesheet, deletePetWorkspace } from './pet-loader';
-import { CELL_W, CELL_H } from './animation-data';
+import { listen } from '@tauri-apps/api/event';
+import { ANIMATIONS, CELL_W, CELL_H } from './animation-data';
 import { saveAiSettings } from './ai-api';
 import {
   isReadyWorkspace,
@@ -14,6 +15,14 @@ import type { AiSettings } from './ai-types';
 let workspaces: PetWorkspace[] = [];
 let currentFolder = '';
 let previewImage: HTMLImageElement | null = null;
+let previewAnimationId: number | null = null;
+let previewFrame = 0;
+let previewElapsed = 0;
+let previewLastTimestamp = 0;
+const spritesheetCache = new Map<string, Promise<HTMLImageElement>>();
+const PREVIEW_DISPLAY_W = 192;
+const PREVIEW_DISPLAY_H = 208;
+const AVATAR_SIZE = 42;
 
 function selectedWorkspace(): PetWorkspace | null {
   return workspaces.find((workspace) => workspace.folder === currentFolder) ?? null;
@@ -24,36 +33,96 @@ function selectedReadyWorkspace(): PetWorkspace | null {
   return isReadyWorkspace(workspace) ? workspace : null;
 }
 
-function drawPreview(): void {
+function loadSpritesheetImage(spritesheetPath: string): Promise<HTMLImageElement> {
+  const cached = spritesheetCache.get(spritesheetPath);
+  if (cached) return cached;
+
+  const promise = loadSpritesheet(spritesheetPath).then((dataUrl) => new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Failed to load spritesheet'));
+    img.src = dataUrl;
+  }));
+  spritesheetCache.set(spritesheetPath, promise);
+  return promise;
+}
+
+function preparePreviewCanvas(): CanvasRenderingContext2D | null {
   const canvas = document.getElementById('preview-canvas') as HTMLCanvasElement;
-  if (!canvas || !previewImage) return;
+  if (!canvas) return null;
 
   const dpr = window.devicePixelRatio || 1;
-  const displayW = 120;
-  const displayH = 130;
-  canvas.width = displayW * dpr;
-  canvas.height = displayH * dpr;
-  canvas.style.width = `${displayW}px`;
-  canvas.style.height = `${displayH}px`;
+  canvas.width = PREVIEW_DISPLAY_W * dpr;
+  canvas.height = PREVIEW_DISPLAY_H * dpr;
+  canvas.style.width = `${PREVIEW_DISPLAY_W}px`;
+  canvas.style.height = `${PREVIEW_DISPLAY_H}px`;
   const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+
+function drawPreviewFrame(): void {
+  if (!previewImage) return;
+  const ctx = preparePreviewCanvas();
   if (!ctx) return;
-  ctx.scale(dpr, dpr);
-  ctx.clearRect(0, 0, displayW, displayH);
-  ctx.drawImage(previewImage, 0, 0, CELL_W, CELL_H, 0, 0, displayW, displayH);
+
+  const def = ANIMATIONS.idle;
+  ctx.clearRect(0, 0, PREVIEW_DISPLAY_W, PREVIEW_DISPLAY_H);
+  ctx.drawImage(
+    previewImage,
+    previewFrame * CELL_W,
+    def.row * CELL_H,
+    CELL_W,
+    CELL_H,
+    0,
+    0,
+    PREVIEW_DISPLAY_W,
+    PREVIEW_DISPLAY_H,
+  );
+}
+
+function stopPreviewAnimation(): void {
+  if (previewAnimationId !== null) {
+    cancelAnimationFrame(previewAnimationId);
+    previewAnimationId = null;
+  }
+  previewFrame = 0;
+  previewElapsed = 0;
+  previewLastTimestamp = 0;
+}
+
+function tickPreview(timestamp: number): void {
+  if (!previewImage) {
+    stopPreviewAnimation();
+    return;
+  }
+
+  const def = ANIMATIONS.idle;
+  if (previewLastTimestamp === 0) {
+    previewLastTimestamp = timestamp;
+  }
+  previewElapsed += timestamp - previewLastTimestamp;
+  previewLastTimestamp = timestamp;
+
+  while (previewElapsed >= def.durations[previewFrame]) {
+    previewElapsed -= def.durations[previewFrame];
+    previewFrame = (previewFrame + 1) % def.frameCount;
+  }
+
+  drawPreviewFrame();
+  previewAnimationId = requestAnimationFrame(tickPreview);
+}
+
+function startPreviewAnimation(): void {
+  stopPreviewAnimation();
+  drawPreviewFrame();
+  previewAnimationId = requestAnimationFrame(tickPreview);
 }
 
 async function loadPetPreview(spritesheetPath: string): Promise<void> {
-  const dataUrl = await loadSpritesheet(spritesheetPath);
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => {
-      previewImage = img;
-      drawPreview();
-      resolve();
-    };
-    img.onerror = () => reject(new Error('Failed to load spritesheet'));
-    img.src = dataUrl;
-  });
+  previewImage = await loadSpritesheetImage(spritesheetPath);
+  startPreviewAnimation();
 }
 
 function setText(id: string, value: string): void {
@@ -89,6 +158,7 @@ function updateWorkspaceList(): void {
 
   if (workspaces.length === 0) {
     list.innerHTML = '<div class="workspace-empty">还没有桌宠工作空间</div>';
+    stopPreviewAnimation();
     return;
   }
 
@@ -96,17 +166,19 @@ function updateWorkspaceList(): void {
     .map((workspace) => {
       const ready = isReadyWorkspace(workspace);
       const name = ready ? workspace.meta.displayName : '资源丢失';
-      const firstChar = ready ? workspace.meta.displayName.slice(0, 1) || '宠' : '!';
       const status = ready ? '可显示' : '资源丢失';
       const active = workspace.folder === currentFolder ? ' active' : '';
       const missing = ready ? '' : ' workspace-item-missing';
       const checked = ready && workspace.enabled ? ' checked' : '';
       const disabled = ready ? '' : ' disabled';
+      const avatar = ready
+        ? `<canvas class="workspace-avatar workspace-avatar-canvas" data-avatar-path="${escapeAttribute(workspace.meta.spritesheetPath)}" width="${AVATAR_SIZE}" height="${AVATAR_SIZE}" aria-label="${escapeAttribute(name)}头像"></canvas>`
+        : '<span class="workspace-avatar workspace-avatar-missing">!</span>';
 
       return `
         <div class="workspace-item${active}${missing}" data-folder="${escapeAttribute(workspace.folder)}">
           <button class="workspace-select" type="button" data-select-folder="${escapeAttribute(workspace.folder)}">
-            <span class="workspace-avatar">${escapeHtml(firstChar)}</span>
+            ${avatar}
             <span class="workspace-copy">
               <strong>${escapeHtml(name)}</strong>
               <small>${escapeHtml(workspace.folder)}</small>
@@ -121,6 +193,48 @@ function updateWorkspaceList(): void {
       `;
     })
     .join('');
+  void renderWorkspaceAvatars();
+}
+
+async function renderWorkspaceAvatars(): Promise<void> {
+  const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>('canvas[data-avatar-path]'));
+
+  await Promise.all(canvases.map(async (canvas) => {
+    const path = canvas.dataset.avatarPath;
+    if (!path) return;
+
+    try {
+      const image = await loadSpritesheetImage(path);
+      if (canvas.dataset.avatarPath !== path) return;
+      drawAvatar(canvas, image);
+    } catch (error) {
+      console.warn('Failed to load workspace avatar:', error);
+    }
+  }));
+}
+
+function drawAvatar(canvas: HTMLCanvasElement, image: HTMLImageElement): void {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = AVATAR_SIZE * dpr;
+  canvas.height = AVATAR_SIZE * dpr;
+  canvas.style.width = `${AVATAR_SIZE}px`;
+  canvas.style.height = `${AVATAR_SIZE}px`;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+
+  const padding = 3;
+  const size = AVATAR_SIZE - padding * 2;
+  const scale = Math.min(size / CELL_W, size / CELL_H);
+  const width = CELL_W * scale;
+  const height = CELL_H * scale;
+  const x = (AVATAR_SIZE - width) / 2;
+  const y = (AVATAR_SIZE - height) / 2;
+  const def = ANIMATIONS.idle;
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, AVATAR_SIZE, AVATAR_SIZE);
+  ctx.drawImage(image, 0, def.row * CELL_H, CELL_W, CELL_H, x, y, width, height);
 }
 
 function updateWorkspaceInfo(): void {
@@ -133,29 +247,25 @@ function updateWorkspaceInfo(): void {
 
   if (!workspace) {
     previewImage = null;
+    stopPreviewAnimation();
     placeholder.style.display = 'flex';
     loaded.style.display = 'none';
     setPlaceholder('桌宠', '请选择你的桌宠');
     setText('current-workspace-name', '请选择你的桌宠');
     setText('current-workspace-folder', '从左侧桌宠列表选择一项');
     setText('current-workspace-description', '开启列表右侧开关后，桌宠会显示在桌面上。');
-    setText('pet-name', '');
-    setText('pet-description', '');
-    setText('selected-workspace-path', '');
     return;
   }
 
   if (!isReadyWorkspace(workspace)) {
     previewImage = null;
+    stopPreviewAnimation();
     placeholder.style.display = 'flex';
     loaded.style.display = 'none';
     setPlaceholder('资源丢失', workspace.missingMessage ?? `未找到文件资源:${workspace.folder}`);
     setText('current-workspace-name', '资源未找到');
     setText('current-workspace-folder', workspace.folder);
     setText('current-workspace-description', workspace.missingMessage ?? `未找到文件资源:${workspace.folder}`);
-    setText('pet-name', '');
-    setText('pet-description', '');
-    setText('selected-workspace-path', '');
     return;
   }
 
@@ -164,9 +274,6 @@ function updateWorkspaceInfo(): void {
   setText('current-workspace-name', workspace.meta.displayName);
   setText('current-workspace-folder', workspace.folder);
   setText('current-workspace-description', workspace.meta.description);
-  setText('pet-name', workspace.meta.displayName);
-  setText('pet-description', workspace.meta.description);
-  setText('selected-workspace-path', workspace.folder);
 }
 
 async function selectWorkspace(folder: string, runtime: ChatRuntime): Promise<void> {
@@ -190,6 +297,7 @@ async function selectWorkspace(folder: string, runtime: ChatRuntime): Promise<vo
   } catch (previewErr) {
     console.warn('Failed to load preview:', previewErr);
     previewImage = null;
+    stopPreviewAnimation();
     document.getElementById('preview-placeholder')!.style.display = 'flex';
     document.getElementById('preview-loaded')!.style.display = 'none';
     setPlaceholder('贴图失败', workspace.meta.spritesheetPath);
@@ -215,6 +323,24 @@ async function toggleWorkspace(folder: string, enabled: boolean): Promise<void> 
     saveWorkspaceSelection(workspaces, currentFolder);
     updateWorkspaceList();
     alert(`无法${enabled ? '显示' : '关闭'}桌宠：\n${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function listenToPetWindowEvents(): Promise<void> {
+  try {
+    await listen<{ folder?: string }>('pet-window-closed', (event) => {
+      const folder = event.payload.folder;
+      if (!folder) return;
+
+      const workspace = workspaces.find((item) => item.folder === folder);
+      if (!workspace?.enabled) return;
+
+      workspace.enabled = false;
+      saveWorkspaceSelection(workspaces, currentFolder);
+      updateWorkspaceList();
+    });
+  } catch (error) {
+    console.warn('Failed to listen to pet window events:', error);
   }
 }
 
@@ -346,6 +472,7 @@ function initAiSettings(runtime: ChatRuntime): void {
 export async function initLandingPage(runtime: ChatRuntime): Promise<void> {
   initTabs();
   initAiSettings(runtime);
+  void listenToPetWindowEvents();
 
   const createButton = document.getElementById('create-workspace-btn') as HTMLButtonElement;
   const importButton = document.getElementById('select-folder-btn') as HTMLButtonElement;
