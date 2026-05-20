@@ -37,3 +37,26 @@ pub fn load_spritesheet(path: String) -> Result<String, String> {
     let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
     Ok(format!("data:image/png;base64,{}", b64))
 }
+
+#[tauri::command]
+pub fn delete_pet_workspace(folder: String) -> Result<(), String> {
+    if folder.trim().is_empty() {
+        return Err("Workspace folder is required".to_string());
+    }
+
+    let folder_path = PathBuf::from(&folder);
+    if !folder_path.is_dir() {
+        return Err(format!(
+            "Workspace folder not found: {}",
+            folder_path.display()
+        ));
+    }
+
+    let folder_path = std::fs::canonicalize(&folder_path).unwrap_or(folder_path);
+    let json_path = folder_path.join("pet.json");
+    if !json_path.is_file() {
+        return Err(format!("pet.json not found: {}", json_path.display()));
+    }
+
+    trash::delete(&folder_path).map_err(|e| format!("Cannot move workspace to recycle bin: {}", e))
+}

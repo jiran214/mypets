@@ -9,6 +9,7 @@ pub fn run() {
             ai::load_ai_state,
             ai::save_ai_settings,
             ai::send_ai_chat_message,
+            pet::delete_pet_workspace,
             pet::load_pet,
             pet::load_spritesheet,
         ])

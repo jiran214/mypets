@@ -11,7 +11,7 @@
       <div class="brand-mark">宠</div>
       <div>
         <h1>多桌宠管理</h1>
-        <p class="subtitle">选择一个工作空间，然后启动桌宠</p>
+        <p class="subtitle">管理你的桌宠列表，并同时显示多只桌宠</p>
       </div>
     </header>
 
@@ -30,11 +30,13 @@
       <section class="workspace-main">
         <section class="workspace-summary">
           <div class="summary-copy">
-            <h2 id="current-workspace-name">请选择或创建桌宠工作空间</h2>
-            <p id="current-workspace-description">一次只能启动一只桌宠。</p>
+            <h2 id="current-workspace-name">请选择你的桌宠</h2>
+            <p id="current-workspace-description">开启列表右侧开关后，桌宠会显示在桌面上。</p>
             <code id="current-workspace-folder">导入包含 pet.json 的文件夹</code>
           </div>
-          <button id="start-btn" class="btn btn-primary" disabled>开始</button>
+          <div class="summary-actions">
+            <button id="delete-workspace-btn" class="btn btn-danger" type="button" disabled>删除</button>
+          </div>
         </section>
 
         <nav class="tab-nav" aria-label="管理页">

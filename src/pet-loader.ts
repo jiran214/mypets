@@ -16,3 +16,7 @@ export async function loadPet(folder: string): Promise<PetMeta> {
 export async function loadSpritesheet(path: string): Promise<string> {
   return invoke<string>('load_spritesheet', { path });
 }
+
+export async function deletePetWorkspace(folder: string): Promise<void> {
+  return invoke<void>('delete_pet_workspace', { folder });
+}

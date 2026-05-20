@@ -1,19 +1,27 @@
-import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
-import { pickPetFolder, loadPet, loadSpritesheet } from './pet-loader';
+import { pickPetFolder, loadPet, loadSpritesheet, deletePetWorkspace } from './pet-loader';
 import { CELL_W, CELL_H } from './animation-data';
 import { saveAiSettings } from './ai-api';
-import { loadSavedWorkspaces, saveWorkspaceSelection, type PetWorkspace } from './workspaces';
+import {
+  isReadyWorkspace,
+  loadSavedWorkspaces,
+  saveWorkspaceSelection,
+  type PetWorkspace,
+} from './workspaces';
+import { hidePetWindow, showPetWindow, syncEnabledWorkspaces } from './pet-windows';
 import type { ChatRuntime } from './chat-runtime';
 import type { AiSettings } from './ai-types';
-import type { PetMeta, AnimationState } from './types';
 
 let workspaces: PetWorkspace[] = [];
 let currentFolder = '';
-let currentMeta: PetMeta | null = null;
 let previewImage: HTMLImageElement | null = null;
 
 function selectedWorkspace(): PetWorkspace | null {
   return workspaces.find((workspace) => workspace.folder === currentFolder) ?? null;
+}
+
+function selectedReadyWorkspace(): PetWorkspace | null {
+  const workspace = selectedWorkspace();
+  return isReadyWorkspace(workspace) ? workspace : null;
 }
 
 function drawPreview(): void {
@@ -62,6 +70,12 @@ function setCheckboxValue(id: string, value: boolean): void {
   input.checked = value;
 }
 
+function setPlaceholder(icon: string, text: string): void {
+  const placeholder = document.getElementById('preview-placeholder')!;
+  placeholder.querySelector<HTMLElement>('.placeholder-icon')!.textContent = icon;
+  placeholder.querySelector<HTMLElement>('.placeholder-text')!.textContent = text;
+}
+
 function setSettingsDisabled(disabled: boolean): void {
   for (const element of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('[data-ai-setting]')) {
     element.disabled = disabled;
@@ -79,15 +93,33 @@ function updateWorkspaceList(): void {
   }
 
   list.innerHTML = workspaces
-    .map((workspace) => `
-      <button class="workspace-item ${workspace.folder === currentFolder ? 'active' : ''}" type="button" data-folder="${escapeAttribute(workspace.folder)}">
-        <span class="workspace-avatar">${escapeHtml(workspace.meta.displayName.slice(0, 1) || '宠')}</span>
-        <span class="workspace-copy">
-          <strong>${escapeHtml(workspace.meta.displayName)}</strong>
-          <small>${escapeHtml(workspace.folder)}</small>
-        </span>
-      </button>
-    `)
+    .map((workspace) => {
+      const ready = isReadyWorkspace(workspace);
+      const name = ready ? workspace.meta.displayName : '资源丢失';
+      const firstChar = ready ? workspace.meta.displayName.slice(0, 1) || '宠' : '!';
+      const status = ready ? '可显示' : '资源丢失';
+      const active = workspace.folder === currentFolder ? ' active' : '';
+      const missing = ready ? '' : ' workspace-item-missing';
+      const checked = ready && workspace.enabled ? ' checked' : '';
+      const disabled = ready ? '' : ' disabled';
+
+      return `
+        <div class="workspace-item${active}${missing}" data-folder="${escapeAttribute(workspace.folder)}">
+          <button class="workspace-select" type="button" data-select-folder="${escapeAttribute(workspace.folder)}">
+            <span class="workspace-avatar">${escapeHtml(firstChar)}</span>
+            <span class="workspace-copy">
+              <strong>${escapeHtml(name)}</strong>
+              <small>${escapeHtml(workspace.folder)}</small>
+              <span class="workspace-status">${escapeHtml(status)}</span>
+            </span>
+          </button>
+          <label class="workspace-switch" title="${ready ? '显示桌宠' : '资源丢失，无法显示'}">
+            <input type="checkbox" data-toggle-folder="${escapeAttribute(workspace.folder)}"${checked}${disabled} />
+            <span></span>
+          </label>
+        </div>
+      `;
+    })
     .join('');
 }
 
@@ -95,18 +127,32 @@ function updateWorkspaceInfo(): void {
   const workspace = selectedWorkspace();
   const placeholder = document.getElementById('preview-placeholder')!;
   const loaded = document.getElementById('preview-loaded')!;
-  const startBtn = document.getElementById('start-btn') as HTMLButtonElement;
+  const deleteButton = document.getElementById('delete-workspace-btn') as HTMLButtonElement;
 
-  currentMeta = workspace?.meta ?? null;
-  startBtn.disabled = !workspace;
+  deleteButton.disabled = !workspace;
 
   if (!workspace) {
     previewImage = null;
     placeholder.style.display = 'flex';
     loaded.style.display = 'none';
-    setText('current-workspace-name', '请选择或创建桌宠工作空间');
-    setText('current-workspace-folder', '导入包含 pet.json 的文件夹');
-    setText('current-workspace-description', '一次只能启动一只桌宠。');
+    setPlaceholder('桌宠', '请选择你的桌宠');
+    setText('current-workspace-name', '请选择你的桌宠');
+    setText('current-workspace-folder', '从左侧桌宠列表选择一项');
+    setText('current-workspace-description', '开启列表右侧开关后，桌宠会显示在桌面上。');
+    setText('pet-name', '');
+    setText('pet-description', '');
+    setText('selected-workspace-path', '');
+    return;
+  }
+
+  if (!isReadyWorkspace(workspace)) {
+    previewImage = null;
+    placeholder.style.display = 'flex';
+    loaded.style.display = 'none';
+    setPlaceholder('资源丢失', workspace.missingMessage ?? `未找到文件资源:${workspace.folder}`);
+    setText('current-workspace-name', '资源未找到');
+    setText('current-workspace-folder', workspace.folder);
+    setText('current-workspace-description', workspace.missingMessage ?? `未找到文件资源:${workspace.folder}`);
     setText('pet-name', '');
     setText('pet-description', '');
     setText('selected-workspace-path', '');
@@ -128,15 +174,47 @@ async function selectWorkspace(folder: string, runtime: ChatRuntime): Promise<vo
   saveWorkspaceSelection(workspaces, currentFolder);
   updateWorkspaceList();
   updateWorkspaceInfo();
+
+  const workspace = selectedWorkspace();
+  if (!isReadyWorkspace(workspace)) {
+    await runtime.setWorkspace('');
+    renderAiSettings(runtime);
+    return;
+  }
+
   await runtime.setWorkspace(folder);
   renderAiSettings(runtime);
 
-  const workspace = selectedWorkspace();
-  if (!workspace) return;
   try {
     await loadPetPreview(workspace.meta.spritesheetPath);
   } catch (previewErr) {
     console.warn('Failed to load preview:', previewErr);
+    previewImage = null;
+    document.getElementById('preview-placeholder')!.style.display = 'flex';
+    document.getElementById('preview-loaded')!.style.display = 'none';
+    setPlaceholder('贴图失败', workspace.meta.spritesheetPath);
+  }
+}
+
+async function toggleWorkspace(folder: string, enabled: boolean): Promise<void> {
+  const workspace = workspaces.find((item) => item.folder === folder);
+  if (!isReadyWorkspace(workspace)) return;
+
+  workspace.enabled = enabled;
+  saveWorkspaceSelection(workspaces, currentFolder);
+  updateWorkspaceList();
+
+  try {
+    if (enabled) {
+      await showPetWindow(workspace);
+    } else {
+      await hidePetWindow(folder);
+    }
+  } catch (error) {
+    workspace.enabled = false;
+    saveWorkspaceSelection(workspaces, currentFolder);
+    updateWorkspaceList();
+    alert(`无法${enabled ? '显示' : '关闭'}桌宠：\n${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -147,71 +225,50 @@ async function importWorkspace(runtime: ChatRuntime): Promise<void> {
   try {
     const meta = await loadPet(folder);
     const existingIndex = workspaces.findIndex((workspace) => workspace.folder === folder);
-    const workspace = { folder, meta };
+    const enabled = existingIndex >= 0 ? workspaces[existingIndex].enabled : false;
+    const workspace: PetWorkspace = { folder, meta, enabled, status: 'ready' };
     if (existingIndex >= 0) {
       workspaces[existingIndex] = workspace;
     } else {
       workspaces.push(workspace);
     }
     await selectWorkspace(folder, runtime);
+    if (enabled) {
+      await showPetWindow(workspace);
+    }
   } catch (err) {
     console.error('Failed to load pet:', err);
     alert(`无法导入桌宠工作空间：\n${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
-export async function transitionToPetMode(
-  renderer: {
-    setImage: (path: string) => Promise<void>;
-    setState: (s: AnimationState) => void;
-    start: () => void;
-    getDisplaySize: () => { width: number; height: number };
-  },
-  defaultState: AnimationState,
-  resolveWindowSize?: (base: { width: number; height: number }) => { width: number; height: number },
-): Promise<void> {
-  if (!currentMeta) return;
+async function deleteSelectedWorkspace(runtime: ChatRuntime): Promise<void> {
+  const workspace = selectedWorkspace();
+  if (!workspace) return;
+
+  const ready = isReadyWorkspace(workspace);
+  const message = ready
+    ? `将把桌宠文件夹移入回收站：\n${workspace.folder}\n\n确定删除吗？`
+    : `该桌宠资源已丢失，将仅从列表移除：\n${workspace.folder}\n\n确定移除吗？`;
+  if (!confirm(message)) return;
 
   try {
-    await renderer.setImage(currentMeta.spritesheetPath);
-  } catch (err) {
-    console.error('Failed to load spritesheet:', err);
-    alert(`无法加载桌宠贴图：\n${currentMeta.spritesheetPath}`);
-    return;
+    if (ready) {
+      await deletePetWorkspace(workspace.folder);
+      await hidePetWindow(workspace.folder).catch((error) => {
+        console.warn('Failed to close deleted pet window:', error);
+      });
+    }
+    workspaces = workspaces.filter((item) => item.folder !== workspace.folder);
+    currentFolder = '';
+    saveWorkspaceSelection(workspaces, currentFolder);
+    updateWorkspaceList();
+    updateWorkspaceInfo();
+    await runtime.setWorkspace('');
+    renderAiSettings(runtime);
+  } catch (error) {
+    alert(`删除失败：\n${error instanceof Error ? error.message : String(error)}`);
   }
-
-  renderer.setState(defaultState);
-  renderer.start();
-
-  const win = getCurrentWindow();
-  const size = renderer.getDisplaySize();
-  const windowSize = resolveWindowSize ? resolveWindowSize(size) : size;
-  await win.setDecorations(false);
-  await win.setSize(new LogicalSize(windowSize.width, windowSize.height));
-  await win.setAlwaysOnTop(true);
-  await win.setSkipTaskbar(true);
-  await win.setResizable(false);
-  await win.center();
-
-  document.getElementById('landing-page')!.classList.add('hidden');
-  document.getElementById('pet-stage')!.style.display = 'inline-flex';
-  document.documentElement.style.background = 'transparent';
-  document.body.style.background = 'transparent';
-}
-
-export async function transitionToLandingMode(): Promise<void> {
-  document.dispatchEvent(new CustomEvent('close-chat-bubble', { detail: { syncFrame: false } }));
-  const win = getCurrentWindow();
-  await win.setAlwaysOnTop(false);
-  await win.setSkipTaskbar(false);
-  await win.setDecorations(true);
-  await win.setSize(new LogicalSize(920, 640));
-  await win.center();
-
-  document.getElementById('pet-stage')!.style.display = 'none';
-  document.getElementById('landing-page')!.classList.remove('hidden');
-  document.documentElement.style.background = '';
-  document.body.style.background = '';
 }
 
 function initTabs(): void {
@@ -268,19 +325,20 @@ function initAiSettings(runtime: ChatRuntime): void {
   const status = document.getElementById('ai-settings-status')!;
 
   saveButton.addEventListener('click', async () => {
-    if (!currentFolder) return;
+    const workspace = selectedReadyWorkspace();
+    if (!workspace) return;
 
     saveButton.disabled = true;
     status.textContent = '保存中...';
     try {
-      const nextState = await saveAiSettings(currentFolder, readAiSettings());
+      const nextState = await saveAiSettings(workspace.folder, readAiSettings());
       runtime.setAiState(nextState);
       renderAiSettings(runtime);
       status.textContent = '已保存';
     } catch (error) {
       status.textContent = error instanceof Error ? error.message : String(error);
     } finally {
-      saveButton.disabled = false;
+      saveButton.disabled = !selectedReadyWorkspace();
     }
   });
 }
@@ -291,7 +349,7 @@ export async function initLandingPage(runtime: ChatRuntime): Promise<void> {
 
   const createButton = document.getElementById('create-workspace-btn') as HTMLButtonElement;
   const importButton = document.getElementById('select-folder-btn') as HTMLButtonElement;
-  const startBtn = document.getElementById('start-btn') as HTMLButtonElement;
+  const deleteButton = document.getElementById('delete-workspace-btn') as HTMLButtonElement;
   const workspaceList = document.getElementById('workspace-list')!;
 
   createButton.addEventListener('click', () => {
@@ -300,18 +358,34 @@ export async function initLandingPage(runtime: ChatRuntime): Promise<void> {
   importButton.addEventListener('click', () => {
     void importWorkspace(runtime);
   });
-  workspaceList.addEventListener('click', (event) => {
-    const item = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-folder]');
-    if (!item) return;
-    void selectWorkspace(item.dataset.folder ?? '', runtime);
+  deleteButton.addEventListener('click', () => {
+    void deleteSelectedWorkspace(runtime);
   });
-  startBtn.addEventListener('click', () => {
-    document.dispatchEvent(new CustomEvent('start-pet'));
+  workspaceList.addEventListener('click', (event) => {
+    if ((event.target as HTMLElement).closest('.workspace-switch')) return;
+    const item = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-select-folder]');
+    if (!item) return;
+    void selectWorkspace(item.dataset.selectFolder ?? '', runtime);
+  });
+  workspaceList.addEventListener('change', (event) => {
+    const toggle = (event.target as HTMLElement).closest<HTMLInputElement>('input[data-toggle-folder]');
+    if (!toggle) return;
+    void toggleWorkspace(toggle.dataset.toggleFolder ?? '', toggle.checked);
   });
 
   const saved = await loadSavedWorkspaces();
   workspaces = saved.workspaces;
   currentFolder = saved.currentFolder;
+  const failedFolders = await syncEnabledWorkspaces(workspaces);
+  if (failedFolders.length > 0) {
+    const failed = new Set(failedFolders);
+    for (const workspace of workspaces) {
+      if (failed.has(workspace.folder)) {
+        workspace.enabled = false;
+      }
+    }
+    saveWorkspaceSelection(workspaces, currentFolder);
+  }
   updateWorkspaceList();
   updateWorkspaceInfo();
 
