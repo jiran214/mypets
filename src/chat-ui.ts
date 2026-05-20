@@ -5,9 +5,8 @@ import type { ChatMessagePart } from './ai-types';
 type Size = { width: number; height: number };
 type BubbleLayout = Size & { petOffsetX: number; petOffsetY: number; bubbleTop: number };
 const BUBBLE_WIDTH = 340;
-const BUBBLE_HEIGHT = 300;
-const BUBBLE_GAP = -50
-const BUBBLE_TOP = 80;
+const BUBBLE_HEIGHT = 640;
+const BUBBLE_GAP = 0;
 
 export interface ChatBubbleController {
   resolvePetWindowSize: (base: Size) => Size;
@@ -96,7 +95,7 @@ export function setupChatBubble(stage: HTMLElement, canvas: HTMLCanvasElement): 
     }
 
     const petOffsetX = Math.max(0, Math.round((BUBBLE_WIDTH - base.width) / 2));
-    const petOffsetY = BUBBLE_HEIGHT + BUBBLE_GAP
+    const petOffsetY = BUBBLE_HEIGHT + BUBBLE_GAP;
     return {
       width: Math.max(base.width, BUBBLE_WIDTH),
       height: base.height + petOffsetY,
@@ -109,10 +108,11 @@ export function setupChatBubble(stage: HTMLElement, canvas: HTMLCanvasElement): 
   const applyBubbleLayout = (layout: BubbleLayout, petSize: Size): void => {
     stage.style.setProperty('--pet-offset-x', `${layout.petOffsetX}px`);
     stage.style.setProperty('--pet-offset-y', `${layout.petOffsetY}px`);
+    stage.style.setProperty('--bubble-width', `${BUBBLE_WIDTH}px`);
     stage.style.setProperty('--bubble-left', `${layout.petOffsetX + petSize.width / 2}px`);
     stage.style.setProperty('--bubble-height', `${BUBBLE_HEIGHT}px`);
     stage.style.setProperty('--bubble-gap', `${BUBBLE_GAP}px`);
-    stage.style.setProperty('--bubble-top', `${BUBBLE_TOP}px`);
+    stage.style.setProperty('--bubble-top', `${layout.bubbleTop}px`);
   };
 
   const resolvePetWindowSize = (base: Size): Size => {
