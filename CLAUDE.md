@@ -29,16 +29,18 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
    ◂──event()──────── ◂──emit("ai-chat-event")──────────── ◂──stdout JSON lines──┘
 ```
 
-- **前端 TypeScript** — Canvas 渲染 + DOM 着陆页 + 聊天 UI
+- **前端 TypeScript** — Canvas 渲染 + DOM 着陆页 + React 聊天 UI
 - **Rust (src-tauri/)** — 文件系统访问、AI 状态管理、启动 Node 子进程
 - **Node (src-node/claude-runner.mjs)** — 通过 `@anthropic-ai/claude-agent-sdk` 的 `query()` 与 Claude 交互，stdout 输出 JSON 行事件
 
 ### Tauri IPC 命令
 
-前端通过 `invoke()` 调用 5 个 Rust 命令（注册在 [lib.rs](src-tauri/src/lib.rs)）：
+前端通过 `invoke()` 调用 7 个 Rust 命令（注册在 [lib.rs](src-tauri/src/lib.rs)）：
 - `load_pet` — 读取并校验 pet 文件夹中的 `pet.json`
 - `load_spritesheet` — 读取图片文件并返回 base64 data URL
+- `delete_pet_workspace` — 将宠物文件夹移入回收站（`trash` crate）
 - `load_ai_state` — 加载工作空间的 AI 设置和路径
+- `list_ai_sessions` — 列出对话会话元数据文件
 - `save_ai_settings` — 保存 AI 设置到 `.mypets-ai/settings.json`
 - `send_ai_chat_message` — 启动 Claude 子进程，通过 Tauri event 系统流式返回结果
 
@@ -59,10 +61,10 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 
 AI 设置存储在每个工作空间的 `.mypets-ai/settings.json`，会话元数据在 `.mypets-ai/sessions/`，日志在 `.mypets-ai/logs/ai.log`。
 
-### 前端：纯 Canvas 2D，无 UI 框架
+### 前端渲染
 
-- 单个 `<canvas>` 元素 (192x208 逻辑像素) 渲染精灵动画
-- `SpriteRenderer` 使用 `requestAnimationFrame`，每帧独立时长，支持 DPR 缩放，自动裁剪透明边缘
+- **Canvas 2D 精灵动画**：单个 `<canvas>` 元素 (192x208 逻辑像素)，`SpriteRenderer` 使用 `requestAnimationFrame`，每帧独立时长，支持 DPR 缩放，自动裁剪透明边缘
+- **React 聊天 UI**：仅聊天组件使用 React + Tailwind + shadcn/ui，着陆页和宠物窗口其余部分为原生 DOM 操作
 - 9 种动画状态定义在 [animation-data.ts](src/animation-data.ts)：idle、running-right、running-left、waving、jumping、failed、waiting、running、review
 - 精灵表为 8 列 x 9 行网格布局，每格 192x208 像素
 - `InteractionManager` 使用优先级槽管理动画状态（hover < drag），拖拽方向自动切换 running-left/right
@@ -96,16 +98,20 @@ AI 设置存储在每个工作空间的 `.mypets-ai/settings.json`，会话元�
 
 `tsconfig.json` 启用了 `strict`、`noUnusedLocals`、`noUnusedParameters`，确保没有未使用的变量或参数。
 
+路径别名：`@/*` 映射到 `./src/*`（在 `tsconfig.json` 和 `vite.config.ts` 中配置）。
+
 ## 关键依赖
 
-- **NPM:** `@tauri-apps/api` ^2、`@tauri-apps/plugin-dialog` ^2、`@anthropic-ai/claude-agent-sdk` ^0.3、`typescript` ~5.6、`vite` ^6
-- **Cargo:** `tauri` 2 (带 `protocol-asset`)、`tauri-plugin-dialog` 2、`serde` + `serde_json` 1、`base64` 0.22
+- **NPM:** `@tauri-apps/api` ^2、`@tauri-apps/plugin-dialog` ^2、`@anthropic-ai/claude-agent-sdk` ^0.3、`typescript` ~5.6、`vite` ^6、`react` 19、`tailwindcss` ^4、`streamdown`
+- **Cargo:** `tauri` 2 (带 `tray-icon`、`protocol-asset`)、`tauri-plugin-dialog` 2、`serde` + `serde_json` 1、`base64` 0.22、`trash` 5
 
 ## 安全模型
 
 Tauri v2 capabilities 定义在 `src-tauri/capabilities/default.json`，仅授予必要的窗口操作和文件对话框权限。Asset protocol scope 为 `["**"]`（允许所有本地路径）。
 
+## 约定
 
-## 补充
-只做关键测试
-
+- 文件命名：kebab-case
+- UI 文字：中文（zh-CN）
+- 提交信息：中文，简短描述
+- 只做关键测试
