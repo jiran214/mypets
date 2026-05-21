@@ -3,6 +3,7 @@ export interface ClaudeSettings {
   permissionMode: string;
   useUserSettings: boolean;
   customEnvText: string;
+  enabledSkills: string[];
 }
 
 export interface AiSettings {
@@ -65,6 +66,13 @@ export interface ChatAttachment {
   id: string;
   path: string;
   name: string;
+}
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  scope: 'global' | 'workspace';
+  path: string;
 }
 
 export interface AiChatRequest {

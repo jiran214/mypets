@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { AiChatEvent, AiChatRequest, AiSessionSummary, AiSettings, AiState } from './ai-types';
+import type { AiChatEvent, AiChatRequest, AiSessionSummary, AiSettings, AiState, SkillInfo } from './ai-types';
 
 export function loadAiState(workspaceFolder: string): Promise<AiState> {
   return invoke<AiState>('load_ai_state', { workspaceFolder });
@@ -12,6 +12,10 @@ export function listAiSessions(workspaceFolder: string): Promise<AiSessionSummar
 
 export function saveAiSettings(workspaceFolder: string, settings: AiSettings): Promise<AiState> {
   return invoke<AiState>('save_ai_settings', { workspaceFolder, settings });
+}
+
+export function listSkills(workspaceFolder: string): Promise<SkillInfo[]> {
+  return invoke<SkillInfo[]>('list_skills', { workspaceFolder });
 }
 
 export function sendAiChatMessage(request: AiChatRequest): Promise<string> {
