@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-mypets 是一个 Tauri 2 桌面宠物应用——浮动、透明、置顶的精灵动画角色，内置 Claude AI 聊天功能。前端用 TypeScript + Vite + Canvas 2D 渲染，后端用 Rust 处理文件系统和 AI 调度。
+mypets 是一个 Tauri 2 桌面宠物应用——浮动、透明、置顶的精灵动画角色，支持多桌宠同时显示，内置 Claude AI 聊天功能。前端用 TypeScript + Vite + React + Canvas 2D 渲染，后端用 Rust 处理文件系统和 AI 调度。
 
 ## 常用命令
 
@@ -64,23 +64,27 @@ AI 设置存储在每个工作空间的 `.mypets-ai/settings.json`，会话元�
 ### 前端渲染
 
 - **Canvas 2D 精灵动画**：单个 `<canvas>` 元素 (192x208 逻辑像素)，`SpriteRenderer` 使用 `requestAnimationFrame`，每帧独立时长，支持 DPR 缩放，自动裁剪透明边缘
-- **React 聊天 UI**：仅聊天组件使用 React + Tailwind + shadcn/ui，着陆页和宠物窗口其余部分为原生 DOM 操作
+- **React 管理界面**：着陆页（manager-app.tsx）使用 React + Tailwind + shadcn/ui，包含侧边栏桌宠列表、聊天面板、设置面板
+- **React 聊天 UI**：聊天组件（chat-ui.tsx）使用 React，有两个挂载点：着陆页嵌入式面板和宠物模式气泡
 - 9 种动画状态定义在 [animation-data.ts](src/animation-data.ts)：idle、running-right、running-left、waving、jumping、failed、waiting、running、review
 - 精灵表为 8 列 x 9 行网格布局，每格 192x208 像素
 - `InteractionManager` 使用优先级槽管理动画状态（hover < drag），拖拽方向自动切换 running-left/right
 
-### 双态 UI：着陆页 / 宠物模式
+### 双态 UI：主窗口 / 宠物窗口
 
-- 启动时显示 DOM 着陆页（渐变背景），用户选择宠物文件夹并预览
-- 点击"开始"后切换到宠物模式：窗口变为透明/置顶/跳过任务栏，Canvas 精灵接管
-- 右键菜单可返回着陆页（"设置"选项）
-- 选中的宠物文件夹通过 `localStorage` 持久化（key: `mypets-workspaces-v1`），支持多工作空间
+- 启动时显示主窗口（React 管理界面），侧边栏列出已导入的桌宠，右侧为聊天面板或设置面板
+- 每个启用的桌宠创建独立的宠物窗口（透明/置顶/跳过任务栏），通过 `pet-windows.ts` 管理
+- 宠物窗口通过 URL 参数 `?view=pet&folder=...` 区分，每个窗口有独立的 Canvas 精灵和聊天气泡
+- 桌宠工作空间通过 `localStorage` 持久化（key: `mypets-workspaces-v1`），支持多工作空间，每个可独立启用/禁用
+- 宠物窗口标签格式：`pet-{folderHash}`，通过 FNV-1a 哈希文件夹路径生成
 
 ### 聊天 UI
 
-- 两个聊天挂载点：着陆页 tab 面板（全功能）和宠物模式气泡（compact 模式）
+- 两个聊天挂载点：主窗口嵌入式面板（`ChatPanel`，全功能）和宠物模式气泡（compact 模式）
+- 主窗口使用 React 组件（`chat-ui.tsx`），宠物模式气泡使用原生 DOM 挂载
 - 左键单击宠物 canvas 切换气泡开关，气泡窗口尺寸自动调整并跟随宠物位置
-- `ChatRuntime` 是纯状态机（无框架），通过 `subscribe/notify` 模式驱动 UI 更新
+- `ChatRuntime` 是纯状态机（无框架），通过 `subscribe/notify` 模式驱动 React 和原生 UI 更新
+- AI 聊天组件（`components/ai-elements/`）提供流式消息渲染、代码高亮、工具调用展示等
 
 ### 宠物文件夹约定
 
@@ -90,6 +94,10 @@ AI 设置存储在每个工作空间的 `.mypets-ai/settings.json`，会话元�
 
 ### 窗口管理
 
+- 主窗口关闭时隐藏到托盘（不退出），通过 `on_window_event` 拦截 `CloseRequested`
+- 系统托盘菜单：打开主窗口、退出应用
+- 宠物窗口创建：`pet-windows.ts` 通过 `WebviewWindow` API 创建，初始位置优先恢复上次保存的位置
+- 宠物位置持久化：通过 `pet-position.ts` 保存到 `localStorage`，窗口移动时 120ms 防抖写入
 - 左键拖拽：通过 `appWindow.setPosition()` 移动窗口（含 DPR 缩放补偿）
 - 右键菜单：通过 Tauri API 构建原生 OS 菜单（切换动画、设置、退出）
 - 宠物模式下可拖拽右下角 resize handle 缩放（0.6x–3x）
@@ -100,14 +108,22 @@ AI 设置存储在每个工作空间的 `.mypets-ai/settings.json`，会话元�
 
 路径别名：`@/*` 映射到 `./src/*`（在 `tsconfig.json` 和 `vite.config.ts` 中配置）。
 
+## shadcn/ui 配置
+
+`components.json` 定义了 shadcn/ui 的配置：使用 `radix-nova` 风格，Tailwind CSS 变量模式，lucide 图标库。组件安装到 `@/components/ui`，工具函数在 `@/lib/utils`。
+
+AI 聊天专用组件在 `src/components/ai-elements/`：流式对话、消息渲染、代码块、工具调用展示、推理过程、附件、提示输入框等。
+
 ## 关键依赖
 
-- **NPM:** `@tauri-apps/api` ^2、`@tauri-apps/plugin-dialog` ^2、`@anthropic-ai/claude-agent-sdk` ^0.3、`typescript` ~5.6、`vite` ^6、`react` 19、`tailwindcss` ^4、`streamdown`
+- **NPM:** `@tauri-apps/api` ^2、`@tauri-apps/plugin-dialog` ^2、`@anthropic-ai/claude-agent-sdk` ^0.3、`typescript` ~5.6、`vite` ^6、`react` 19、`tailwindcss` ^4、`shadcn` ^4、`streamdown`（流式 Markdown 渲染）、`motion`（动画）、`shiki`（代码高亮）
 - **Cargo:** `tauri` 2 (带 `tray-icon`、`protocol-asset`)、`tauri-plugin-dialog` 2、`serde` + `serde_json` 1、`base64` 0.22、`trash` 5
 
 ## 安全模型
 
-Tauri v2 capabilities 定义在 `src-tauri/capabilities/default.json`，仅授予必要的窗口操作和文件对话框权限。Asset protocol scope 为 `["**"]`（允许所有本地路径）。
+Tauri v2 capabilities 定义在 `src-tauri/capabilities/default.json`，应用于 `main` 和 `pet-*` 窗口，仅授予必要的窗口操作、事件监听和文件对话框权限。所有文件系统访问在 Rust 侧完成，前端只接收元数据和 base64 图片。
+
+AI 设置和会话存储在每个工作空间的 `.mypets-ai/` 目录下，Claude 配置在 `.claude/` 目录下。
 
 ## 约定
 
