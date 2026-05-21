@@ -1,14 +1,12 @@
 import './style.css';
-import { initLandingPage } from './landing';
 import { initPetWindow } from './pet-window';
 import { ChatRuntime } from './chat-runtime';
-import { mountChatUi } from './chat-ui';
+import { mountManagerApp } from './manager-app';
 
 async function initManagerWindow(): Promise<void> {
   const chatRuntime = new ChatRuntime();
   await chatRuntime.init();
-  mountChatUi(document.getElementById('chat-tab-root')!, chatRuntime);
-  await initLandingPage(chatRuntime);
+  mountManagerApp(document.getElementById('landing-page')!, chatRuntime);
 }
 
 async function init(): Promise<void> {

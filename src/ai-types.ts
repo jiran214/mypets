@@ -7,6 +7,7 @@ export interface ClaudeSettings {
 
 export interface AiSettings {
   providerId: 'claude';
+  petPersona: string;
   claude: ClaudeSettings;
 }
 

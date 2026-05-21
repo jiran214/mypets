@@ -30,6 +30,8 @@ pub struct AiSettings {
     #[serde(default = "default_provider_id")]
     pub provider_id: String,
     #[serde(default)]
+    pub pet_persona: String,
+    #[serde(default)]
     pub claude: ClaudeSettings,
 }
 
@@ -117,6 +119,7 @@ impl Default for AiSettings {
     fn default() -> Self {
         Self {
             provider_id: default_provider_id(),
+            pet_persona: String::new(),
             claude: ClaudeSettings::default(),
         }
     }
@@ -422,7 +425,13 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
         "prompt": request.prompt,
         "attachments": request.attachments,
         "providerState": request.provider_state,
-        "settings": settings.claude,
+        "settings": {
+            "petPersona": settings.pet_persona,
+            "pathToClaudeCodeExecutable": settings.claude.path_to_claude_code_executable,
+            "permissionMode": settings.claude.permission_mode,
+            "useUserSettings": settings.claude.use_user_settings,
+            "customEnvText": settings.claude.custom_env_text,
+        },
         "paths": public_paths(&paths),
     });
 

@@ -19,10 +19,18 @@ export function sendAiChatMessage(request: AiChatRequest): Promise<string> {
 }
 
 export async function listenToAiChatEvents(handler: (event: AiChatEvent) => void): Promise<UnlistenFn> {
+  if (!hasTauriRuntime()) {
+    return () => {};
+  }
+
   try {
     return await listen<AiChatEvent>('ai-chat-event', (event) => handler(event.payload));
   } catch (error) {
     console.warn('AI chat events are unavailable outside Tauri:', error);
     return () => {};
   }
+}
+
+function hasTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
