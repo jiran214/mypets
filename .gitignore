@@ -4,6 +4,9 @@ pnpm-lock.yaml
 yarn.lock
 
 # Build outputs
+.claude/
+.codex/
+.playwright-cli/
 dist/
 src-tauri/target/
 src-tauri/gen/
