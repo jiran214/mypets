@@ -13,10 +13,18 @@ export async function loadPet(folder: string): Promise<PetMeta> {
   return invoke<PetMeta>('load_pet', { folder });
 }
 
+export async function updatePetDisplayName(folder: string, displayName: string): Promise<PetMeta> {
+  return invoke<PetMeta>('update_pet_display_name', { folder, displayName });
+}
+
 export async function loadSpritesheet(path: string): Promise<string> {
   return invoke<string>('load_spritesheet', { path });
 }
 
 export async function deletePetWorkspace(folder: string): Promise<void> {
   return invoke<void>('delete_pet_workspace', { folder });
+}
+
+export async function openWorkspaceInFileManager(folder: string): Promise<void> {
+  return invoke<void>('open_workspace_in_file_manager', { folder });
 }

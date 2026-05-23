@@ -4,6 +4,8 @@ import { ChatRuntime } from './chat-runtime';
 import { mountManagerApp } from './manager-app';
 
 async function initManagerWindow(): Promise<void> {
+  document.documentElement.classList.add('manager-window');
+  document.body.classList.add('manager-window');
   const chatRuntime = new ChatRuntime();
   await chatRuntime.init();
   mountManagerApp(document.getElementById('landing-page')!, chatRuntime);

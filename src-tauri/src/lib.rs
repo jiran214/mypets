@@ -95,6 +95,8 @@ pub fn run() {
             pet::delete_pet_workspace,
             pet::load_pet,
             pet::load_spritesheet,
+            pet::open_workspace_in_file_manager,
+            pet::update_pet_display_name,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

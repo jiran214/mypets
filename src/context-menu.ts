@@ -1,4 +1,4 @@
-import { Menu, PredefinedMenuItem } from '@tauri-apps/api/menu';
+import { Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu';
 import { emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ANIMATIONS } from './animation-data';
@@ -28,19 +28,29 @@ export function setupContextMenu(
 
     const separator = await PredefinedMenuItem.new({ item: 'Separator' });
 
-    const stateItems = (Object.keys(ANIMATIONS) as AnimationState[]).map((state) => ({
-      id: state,
-      text: STATE_LABELS[state],
-      action: () => renderer.setState(state),
-    }));
+    const stateItems = await Promise.all(
+      (Object.keys(ANIMATIONS) as AnimationState[]).map((state) =>
+        MenuItem.new({
+          id: `anim-${state}`,
+          text: STATE_LABELS[state],
+          action: () => renderer.setState(state),
+        }),
+      ),
+    );
+
+    const actionsSubmenu = await Submenu.new({
+      id: 'actions',
+      text: '动作',
+      items: stateItems,
+    });
 
     const menu = await Menu.new({
       items: [
-        ...stateItems,
+        actionsSubmenu,
         separator,
         {
-          id: 'settings',
-          text: '设置',
+          id: 'main-window',
+          text: '主界面',
           action: () => onOpenSettings(),
         },
         separator,

@@ -42,6 +42,14 @@ pub struct AiSettings {
     #[serde(default = "default_provider_id")]
     pub provider_id: String,
     #[serde(default)]
+    pub pet_always_on_top: bool,
+    #[serde(default = "default_pet_gravity_enabled")]
+    pub pet_gravity_enabled: bool,
+    #[serde(default = "default_pet_scale")]
+    pub pet_scale: f64,
+    #[serde(default)]
+    pub pet_resize_enabled: bool,
+    #[serde(default = "default_pet_persona")]
     pub pet_persona: String,
     #[serde(default)]
     pub claude: ClaudeSettings,
@@ -147,7 +155,11 @@ impl Default for AiSettings {
     fn default() -> Self {
         Self {
             provider_id: default_provider_id(),
-            pet_persona: String::new(),
+            pet_always_on_top: false,
+            pet_gravity_enabled: default_pet_gravity_enabled(),
+            pet_scale: default_pet_scale(),
+            pet_resize_enabled: false,
+            pet_persona: default_pet_persona(),
             claude: ClaudeSettings::default(),
         }
     }
@@ -159,6 +171,18 @@ fn default_provider_id() -> String {
 
 fn default_permission_mode() -> String {
     "default".to_string()
+}
+
+fn default_pet_gravity_enabled() -> bool {
+    true
+}
+
+fn default_pet_scale() -> f64 {
+    1.0
+}
+
+fn default_pet_persona() -> String {
+    "你是这个桌宠角色在用户电脑桌面上的人格化伙伴。你长期陪伴用户工作、学习和休息，语气自然、温和、有一点俏皮，但不喧宾夺主。你会把自己当作屏幕边缘的小生命：能观察用户给出的文字、任务和上下文，却不会假装看到屏幕上没有提供的信息。回答要优先简洁、可执行，用户焦虑时先帮他把问题拆小，用户专注时少打扰。你可以偶尔使用符合桌宠气质的短句和轻微拟声，但不要大量卖萌、不要刷表情。遇到技术问题时像可靠的同伴一样给出明确步骤；遇到情绪问题时先共情，再提出具体下一步。你不替用户做危险决定，不编造事实，不夸大能力。默认使用中文，除非用户要求其他语言。".to_string()
 }
 
 fn default_attachment_kind() -> String {

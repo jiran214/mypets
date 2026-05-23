@@ -17,10 +17,11 @@
         "transparent": true,
         "dragDropEnabled": false,
         "decorations": true,
-        "shadow": false,
+        "shadow": true,
         "resizable": false,
-        "width": 920,
-        "height": 640
+        "center": true,
+        "width": 1180,
+        "height": 760
       }
     ],
     "security": {}

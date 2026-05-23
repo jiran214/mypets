@@ -47,6 +47,31 @@ canvas {
   display: none;
 }
 
+html.manager-window,
+body.manager-window {
+  background: transparent;
+}
+
+body.manager-window {
+  padding: 10px;
+  background:
+    radial-gradient(circle at 12% 8%, oklch(0.92 0.035 78 / 0.65), transparent 30rem),
+    radial-gradient(circle at 92% 4%, oklch(0.86 0.04 190 / 0.45), transparent 26rem),
+    linear-gradient(135deg, oklch(0.92 0.012 260), oklch(0.985 0.004 95));
+}
+
+body.manager-window #landing-page {
+  width: calc(100vw - 20px);
+  height: calc(100vh - 20px);
+  border: 1px solid oklch(1 0 0 / 0.78);
+  border-radius: 22px;
+  overflow: hidden;
+  background: var(--background);
+  box-shadow:
+    0 30px 80px oklch(0.17 0.015 260 / 0.18),
+    0 1px 0 oklch(1 0 0 / 0.8) inset;
+}
+
 #pet-stage {
   --pet-offset-x: 0px;
   --pet-offset-y: 0px;

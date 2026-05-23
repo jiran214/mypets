@@ -8,6 +8,10 @@ export interface ClaudeSettings {
 
 export interface AiSettings {
   providerId: 'claude';
+  petAlwaysOnTop: boolean;
+  petGravityEnabled: boolean;
+  petScale: number;
+  petResizeEnabled: boolean;
   petPersona: string;
   claude: ClaudeSettings;
 }

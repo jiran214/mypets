@@ -3,8 +3,8 @@ import type { SpriteRenderer } from './renderer';
 import type { AnimationState } from './types';
 
 const DRAG_THRESHOLD = 10;
-const MIN_SCALE = 0.6;
-const MAX_SCALE = 3;
+const MIN_SCALE = 0.5;
+const MAX_SCALE = 2;
 const SCALE_SENSITIVITY = 0.008;
 
 const enum Priority {
@@ -189,7 +189,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function syncStageScale(
+export function syncStageScale(
   stage: HTMLElement,
   canvas: HTMLCanvasElement,
   renderer: SpriteRenderer,
@@ -205,15 +205,23 @@ function syncStageScale(
   stage.style.setProperty('--pet-scale', scale.toFixed(3));
 }
 
+export interface ResizeHandleControl {
+  setScale(scale: number): void;
+  setEnabled(enabled: boolean): void;
+  getScale(): number;
+}
+
 function setupResizeHandle(
   stage: HTMLDivElement,
   canvas: HTMLCanvasElement,
   handle: HTMLButtonElement,
   renderer: SpriteRenderer,
   resolveWindowSize?: (base: Size) => Size,
-): void {
+  onScaleChange?: (scale: number) => void,
+): ResizeHandleControl {
   const appWindow = safeCurrentWindow();
-  let scale = 1;
+  let scale = 0.8;
+  let enabled = true;
   let pointerId: number | null = null;
   let startScale = 1;
   let startX = 0;
@@ -235,7 +243,7 @@ function setupResizeHandle(
   canvas.addEventListener('pet-canvas-resize', syncWindowSize);
 
   handle.addEventListener('pointerdown', (e: PointerEvent) => {
-    if (e.button !== 0) {
+    if (!enabled || e.button !== 0) {
       return;
     }
 
@@ -278,12 +286,30 @@ function setupResizeHandle(
     if (e && pointerId === e.pointerId && handle.hasPointerCapture(e.pointerId)) {
       handle.releasePointerCapture(e.pointerId);
     }
+    if (pointerId !== null) {
+      onScaleChange?.(scale);
+    }
     pointerId = null;
     delete handle.dataset.active;
   };
 
   handle.addEventListener('pointerup', stopResize);
   handle.addEventListener('pointercancel', stopResize);
+
+  return {
+    setScale(newScale: number) {
+      scale = clamp(newScale, MIN_SCALE, MAX_SCALE);
+      syncWindowSize();
+      onScaleChange?.(scale);
+    },
+    setEnabled(next: boolean) {
+      enabled = next;
+      handle.style.display = next ? '' : 'none';
+    },
+    getScale() {
+      return scale;
+    },
+  };
 }
 
 function safeCurrentWindow(): ReturnType<typeof getCurrentWindow> | null {
@@ -301,10 +327,11 @@ export function setupInteractions(
   handle: HTMLButtonElement,
   renderer: SpriteRenderer,
   resolveWindowSize?: (base: Size) => Size,
-): InteractionManager {
+  onScaleChange?: (scale: number) => void,
+): InteractionManager & { resizeControl: ResizeHandleControl } {
   const manager = new InteractionManager(renderer);
-  setupResizeHandle(stage, canvas, handle, renderer, resolveWindowSize);
+  const resizeControl = setupResizeHandle(stage, canvas, handle, renderer, resolveWindowSize, onScaleChange);
   setupDragDirection(canvas, manager);
   setupHover(canvas, manager);
-  return manager;
+  return Object.assign(manager, { resizeControl });
 }
