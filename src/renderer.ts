@@ -11,6 +11,7 @@ export class SpriteRenderer {
   private frameElapsed = 0;
   private lastTimestamp = 0;
   private running = false;
+  private cycleCallbacks = new Set<() => void>();
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -45,6 +46,11 @@ export class SpriteRenderer {
     return this.currentState;
   }
 
+  onCycle(callback: () => void): () => void {
+    this.cycleCallbacks.add(callback);
+    return () => { this.cycleCallbacks.delete(callback); };
+  }
+
   getDisplaySize(): { width: number; height: number } {
     return {
       width: this.trim.width,
@@ -66,9 +72,17 @@ export class SpriteRenderer {
     this.frameElapsed += dt;
 
     const def = ANIMATIONS[this.currentState];
+    let cycled = false;
     while (this.frameElapsed >= def.durations[this.currentFrame]) {
       this.frameElapsed -= def.durations[this.currentFrame];
+      if (this.currentFrame === def.frameCount - 1) {
+        cycled = true;
+      }
       this.currentFrame = (this.currentFrame + 1) % def.frameCount;
+    }
+
+    if (cycled) {
+      for (const cb of this.cycleCallbacks) cb();
     }
 
     this.draw();

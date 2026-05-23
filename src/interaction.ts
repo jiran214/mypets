@@ -10,10 +10,12 @@ const SCALE_SENSITIVITY = 0.008;
 const enum Priority {
   Idle = 0,
   Hover = 1,
-  Drag = 2,
+  OneShot = 2,
+  Continuous = 3,
+  Drag = 4,
 }
 
-type InteractionSource = 'hover' | 'drag';
+type InteractionSource = 'hover' | 'drag' | 'oneshot' | 'chat';
 type Size = { width: number; height: number };
 
 interface InteractionSlot {
@@ -21,9 +23,10 @@ interface InteractionSlot {
   state: AnimationState;
 }
 
-class InteractionManager {
+export class InteractionManager {
   private readonly slots = new Map<InteractionSource, InteractionSlot>();
   private currentState: AnimationState = 'idle';
+  private oneShotCleanup: (() => void) | null = null;
 
   constructor(private renderer: SpriteRenderer) {}
 
@@ -38,6 +41,22 @@ class InteractionManager {
     }
 
     this.sync();
+  }
+
+  playOnce(state: AnimationState): void {
+    this.cancelOneShot();
+    this.activate('oneshot', Priority.OneShot, state);
+    this.oneShotCleanup = this.renderer.onCycle(() => {
+      this.cancelOneShot();
+      this.deactivate('oneshot');
+    });
+  }
+
+  private cancelOneShot(): void {
+    if (this.oneShotCleanup) {
+      this.oneShotCleanup();
+      this.oneShotCleanup = null;
+    }
   }
 
   private sync(): void {
@@ -282,9 +301,10 @@ export function setupInteractions(
   handle: HTMLButtonElement,
   renderer: SpriteRenderer,
   resolveWindowSize?: (base: Size) => Size,
-): void {
+): InteractionManager {
   const manager = new InteractionManager(renderer);
   setupResizeHandle(stage, canvas, handle, renderer, resolveWindowSize);
   setupDragDirection(canvas, manager);
   setupHover(canvas, manager);
+  return manager;
 }
