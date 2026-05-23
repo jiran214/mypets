@@ -1,14 +1,74 @@
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, normalize } from 'node:path';
+import { createInterface } from 'node:readline';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 let activeRequestId = 'unknown';
 const MAX_INLINE_ATTACHMENT_BYTES = 256 * 1024;
+const TOOL_RESPONSE_TIMEOUT_MS = 30 * 60 * 1000;
 
 function emit(event) {
   process.stdout.write(`${JSON.stringify(event)}\n`);
+}
+
+let receivedInitialPayload = false;
+let resolveInitialPayload;
+let rejectInitialPayload;
+let inputBridgeClosed = false;
+const pendingToolResponses = new Map();
+const inputBridge = createInterface({ input: process.stdin, crlfDelay: Infinity });
+const initialPayloadPromise = new Promise((resolve, reject) => {
+  resolveInitialPayload = resolve;
+  rejectInitialPayload = reject;
+});
+
+inputBridge.on('line', (line) => {
+  const trimmed = line.trim();
+  if (!trimmed) return;
+
+  let message;
+  try {
+    message = JSON.parse(trimmed);
+  } catch (error) {
+    if (!receivedInitialPayload) {
+      rejectInitialPayload(error);
+    }
+    return;
+  }
+
+  if (!receivedInitialPayload) {
+    receivedInitialPayload = true;
+    resolveInitialPayload(message);
+    return;
+  }
+
+  if (message?.type !== 'tool_response') return;
+  const questionId = asOptionalString(message.questionId);
+  if (!questionId) return;
+  const pending = pendingToolResponses.get(questionId);
+  if (!pending) return;
+  pendingToolResponses.delete(questionId);
+  pending.resolve(message.response ?? {});
+});
+
+inputBridge.on('close', () => {
+  if (!receivedInitialPayload) {
+    rejectInitialPayload(new Error('No Claude helper input received'));
+  }
+  for (const [questionId, pending] of pendingToolResponses) {
+    pending.reject(new Error(`Input closed before receiving answer for ${questionId}`));
+  }
+  pendingToolResponses.clear();
+});
+
+function closeInputBridge() {
+  if (inputBridgeClosed) return;
+  inputBridgeClosed = true;
+  inputBridge.close();
+  process.stdin.pause();
 }
 
 function asOptionalString(value) {
@@ -243,6 +303,165 @@ function toolTitle(name) {
   return `工具 ${name}`;
 }
 
+function isAskUserQuestionTool(toolName, input) {
+  return toolName === 'AskUserQuestion' || (toolName.toLowerCase() === 'askuserquestion' && Array.isArray(input?.questions));
+}
+
+function normalizeQuestionOption(option, index) {
+  const label = asOptionalString(option?.label) ?? `选项 ${index + 1}`;
+  return {
+    label,
+    description: asOptionalString(option?.description) ?? label,
+    ...(asOptionalString(option?.preview) ? { preview: asOptionalString(option.preview) } : {}),
+  };
+}
+
+function normalizeQuestionItem(item, index) {
+  const options = Array.isArray(item?.options)
+    ? item.options.slice(0, 4).map(normalizeQuestionOption)
+    : [];
+
+  return {
+    question: asOptionalString(item?.question) ?? `请选择第 ${index + 1} 项`,
+    header: asOptionalString(item?.header) ?? `问题 ${index + 1}`,
+    options: options.length >= 2
+      ? options
+      : [
+          { label: '确认', description: '使用默认确认。' },
+          { label: '取消', description: '不继续此选择。' },
+        ],
+    multiSelect: Boolean(item?.multiSelect),
+  };
+}
+
+function normalizeAskUserQuestions(input) {
+  const questions = Array.isArray(input?.questions) ? input.questions : [];
+  const normalized = questions.slice(0, 4).map(normalizeQuestionItem);
+  return normalized.length > 0 ? normalized : [normalizeQuestionItem({}, 0)];
+}
+
+function createPermissionQuestion(toolName, input, ctx) {
+  const title = ctx.title || `Claude 想使用 ${toolName}`;
+  const description = ctx.description || stringifyBrief(input);
+  return {
+    question: title.endsWith('？') || title.endsWith('?') ? title : `${title}？`,
+    header: ctx.displayName || toolName,
+    options: [
+      { label: '允许', description: description || '允许 Claude 执行这个工具调用。' },
+      { label: '拒绝', description: '不执行这个工具调用，并告诉 Claude 你拒绝了。' },
+    ],
+    multiSelect: false,
+  };
+}
+
+function emitToolQuestion(requestId, question) {
+  emit({
+    type: 'question',
+    requestId,
+    question,
+  });
+}
+
+function waitForToolResponse(questionId, signal) {
+  if (signal?.aborted) {
+    return Promise.reject(new Error('Tool question was cancelled'));
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      pendingToolResponses.delete(questionId);
+      reject(new Error('Timed out waiting for user answer'));
+    }, TOOL_RESPONSE_TIMEOUT_MS);
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+    };
+    const abort = () => {
+      cleanup();
+      pendingToolResponses.delete(questionId);
+      reject(new Error('Tool question was cancelled'));
+    };
+
+    signal?.addEventListener('abort', abort, { once: true });
+    pendingToolResponses.set(questionId, {
+      resolve: (response) => {
+        cleanup();
+        resolve(response);
+      },
+      reject: (error) => {
+        cleanup();
+        reject(error);
+      },
+    });
+  });
+}
+
+async function handleAskUserQuestion(toolName, input, ctx) {
+  const questionId = ctx.toolUseID || randomUUID();
+  const question = {
+    id: questionId,
+    requestId: activeRequestId,
+    toolName,
+    toolUseId: ctx.toolUseID || questionId,
+    kind: 'ask-user-question',
+    title: ctx.title || 'Claude 需要你的选择',
+    ...(ctx.description ? { description: ctx.description } : {}),
+    questions: normalizeAskUserQuestions(input),
+  };
+
+  emitToolQuestion(activeRequestId, question);
+  const response = await waitForToolResponse(questionId, ctx.signal);
+  const answers = response?.answers && typeof response.answers === 'object' ? response.answers : {};
+  return {
+    behavior: 'allow',
+    toolUseID: ctx.toolUseID,
+    updatedInput: {
+      ...input,
+      answers,
+      ...(response?.annotations ? { annotations: response.annotations } : {}),
+    },
+  };
+}
+
+async function handlePermissionQuestion(toolName, input, ctx) {
+  const questionId = ctx.toolUseID || randomUUID();
+  const prompt = createPermissionQuestion(toolName, input, ctx);
+  const question = {
+    id: questionId,
+    requestId: activeRequestId,
+    toolName,
+    toolUseId: ctx.toolUseID || questionId,
+    kind: 'permission',
+    title: ctx.title || `确认 ${toolName}`,
+    ...(ctx.description ? { description: ctx.description } : {}),
+    questions: [prompt],
+  };
+
+  emitToolQuestion(activeRequestId, question);
+  const response = await waitForToolResponse(questionId, ctx.signal);
+  const answer = response?.answers?.[prompt.question] ?? '';
+  if (String(answer).includes('允许')) {
+    return {
+      behavior: 'allow',
+      toolUseID: ctx.toolUseID,
+    };
+  }
+
+  return {
+    behavior: 'deny',
+    message: '用户拒绝了这个工具调用。',
+    toolUseID: ctx.toolUseID,
+  };
+}
+
+async function canUseTool(toolName, input, ctx) {
+  if (isAskUserQuestionTool(toolName, input)) {
+    return handleAskUserQuestion(toolName, input, ctx);
+  }
+  return handlePermissionQuestion(toolName, input, ctx);
+}
+
 function emitContentBlock(requestId, block, includeText) {
   if (!block || typeof block !== 'object') return false;
 
@@ -257,6 +476,9 @@ function emitContentBlock(requestId, block, includeText) {
   }
 
   if (block.type === 'tool_use' && typeof block.name === 'string') {
+    if (isAskUserQuestionTool(block.name, block.input)) {
+      return false;
+    }
     emitPart(requestId, classifyTool(block.name), stringifyBrief(block.input), toolTitle(block.name));
     return false;
   }
@@ -302,7 +524,7 @@ function emitSdkStatusPart(requestId, message) {
 }
 
 async function main() {
-  const input = JSON.parse(readFileSync(0, 'utf8'));
+  const input = await initialPayloadPromise;
   const settings = input.settings ?? {};
   const providerState = input.providerState ?? {};
   const requestId = input.requestId;
@@ -317,6 +539,10 @@ async function main() {
   const customEnv = parseCustomEnv(settings.customEnvText);
   const options = {
     includePartialMessages: true,
+    canUseTool,
+    toolConfig: {
+      askUserQuestion: { previewFormat: 'markdown' },
+    },
     permissionMode: settings.permissionMode || 'default',
     settingSources: ['project', 'local'],
     cwd: workspaceDir,
@@ -352,58 +578,63 @@ async function main() {
 
   emit({ type: 'status', requestId, status: 'started' });
 
-  for await (const message of query({ prompt: buildPrompt(input, attachments), options })) {
-    if (message.session_id && message.session_id !== lastSessionId) {
-      lastSessionId = message.session_id;
-      emit({
-        type: 'session',
-        requestId,
-        providerState: { claudeSessionId: lastSessionId },
-      });
-    }
-
-    if (message.type === 'stream_event') {
-      const delta = textDeltaFromStreamEvent(message.event);
-      if (delta) {
-        sawTextDelta = true;
-        emit({ type: 'delta', requestId, text: delta });
-      }
-
-      const thinking = thinkingDeltaFromStreamEvent(message.event);
-      if (thinking) {
-        emitPart(requestId, 'thinking', thinking, '思考');
-      }
-      continue;
-    }
-
-    if (message.type === 'assistant') {
-      sawTextDelta = emitAssistantParts(requestId, message, !sawTextDelta) || sawTextDelta;
-      continue;
-    }
-
-    if (message.type === 'result') {
-      if (!sawTextDelta && !message.is_error && typeof message.result === 'string') {
-        emit({ type: 'delta', requestId, text: message.result });
-      }
-
-      if (message.is_error) {
-        const detail = Array.isArray(message.errors) ? message.errors.join('\n') : 'Claude request failed';
-        emit({ type: 'error', requestId, error: detail });
-      } else {
+  try {
+    for await (const message of query({ prompt: buildPrompt(input, attachments), options })) {
+      if (message.session_id && message.session_id !== lastSessionId) {
+        lastSessionId = message.session_id;
         emit({
-          type: 'done',
+          type: 'session',
           requestId,
-          providerState: lastSessionId ? { claudeSessionId: lastSessionId } : providerState,
+          providerState: { claudeSessionId: lastSessionId },
         });
       }
-      continue;
-    }
 
-    emitSdkStatusPart(requestId, message);
+      if (message.type === 'stream_event') {
+        const delta = textDeltaFromStreamEvent(message.event);
+        if (delta) {
+          sawTextDelta = true;
+          emit({ type: 'delta', requestId, text: delta });
+        }
+
+        const thinking = thinkingDeltaFromStreamEvent(message.event);
+        if (thinking) {
+          emitPart(requestId, 'thinking', thinking, '思考');
+        }
+        continue;
+      }
+
+      if (message.type === 'assistant') {
+        sawTextDelta = emitAssistantParts(requestId, message, !sawTextDelta) || sawTextDelta;
+        continue;
+      }
+
+      if (message.type === 'result') {
+        if (!sawTextDelta && !message.is_error && typeof message.result === 'string') {
+          emit({ type: 'delta', requestId, text: message.result });
+        }
+
+        if (message.is_error) {
+          const detail = Array.isArray(message.errors) ? message.errors.join('\n') : 'Claude request failed';
+          emit({ type: 'error', requestId, error: detail });
+        } else {
+          emit({
+            type: 'done',
+            requestId,
+            providerState: lastSessionId ? { claudeSessionId: lastSessionId } : providerState,
+          });
+        }
+        continue;
+      }
+
+      emitSdkStatusPart(requestId, message);
+    }
+  } finally {
+    closeInputBridge();
   }
 }
 
 main().catch((error) => {
+  closeInputBridge();
   emit({
     type: 'error',
     requestId: activeRequestId,

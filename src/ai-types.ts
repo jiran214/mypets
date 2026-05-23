@@ -50,7 +50,7 @@ export interface ChatMessage {
   error?: boolean;
 }
 
-export type ChatPartKind = 'text' | 'thinking' | 'plan' | 'tool' | 'mcp' | 'skill' | 'path' | 'attachment' | 'status';
+export type ChatPartKind = 'text' | 'thinking' | 'plan' | 'tool' | 'mcp' | 'skill' | 'path' | 'attachment' | 'status' | 'question';
 
 export interface ChatMessagePart {
   id: string;
@@ -75,6 +75,45 @@ export interface ChatAttachment {
   mediaType?: string;
 }
 
+export type ToolQuestionKind = 'ask-user-question' | 'permission';
+
+export interface ToolQuestionOption {
+  label: string;
+  description: string;
+  preview?: string;
+}
+
+export interface ToolQuestionItem {
+  question: string;
+  header: string;
+  options: ToolQuestionOption[];
+  multiSelect: boolean;
+}
+
+export interface ToolQuestionRequest {
+  id: string;
+  requestId: string;
+  toolName: string;
+  toolUseId: string;
+  kind: ToolQuestionKind;
+  title?: string;
+  description?: string;
+  questions: ToolQuestionItem[];
+}
+
+export interface ToolQuestionAnswerPayload {
+  answers: Record<string, string>;
+  annotations?: Record<string, { preview?: string; notes?: string }>;
+}
+
+export type ToolQuestionPartStatus = 'pending' | 'submitting' | 'answered' | 'error';
+
+export interface ToolQuestionPartData extends ToolQuestionRequest {
+  status: ToolQuestionPartStatus;
+  response?: ToolQuestionAnswerPayload;
+  error?: string;
+}
+
 export interface SavedDroppedChatFile {
   path: string;
   name: string;
@@ -97,10 +136,18 @@ export interface AiChatRequest {
   providerState: ClaudeProviderState;
 }
 
+export interface AiToolQuestionAnswerRequest {
+  requestId: string;
+  questionId: string;
+  response: ToolQuestionAnswerPayload;
+}
+
 export type AiChatEvent =
   | { type: 'status'; requestId: string; status: string }
   | { type: 'session'; requestId: string; providerState: ClaudeProviderState }
   | { type: 'part'; requestId: string; part: Omit<ChatMessagePart, 'id'> }
+  | { type: 'question'; requestId: string; question: ToolQuestionRequest }
   | { type: 'delta'; requestId: string; text: string }
   | { type: 'done'; requestId: string; providerState?: ClaudeProviderState }
+  | { type: 'cancelled'; requestId: string }
   | { type: 'error'; requestId: string; error: string };

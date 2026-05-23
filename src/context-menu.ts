@@ -1,6 +1,7 @@
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu';
 import { emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { ANIMATIONS } from './animation-data';
 import type { SpriteRenderer } from './renderer';
 import type { AnimationState } from './types';
@@ -17,10 +18,18 @@ const STATE_LABELS: Record<AnimationState, string> = {
   'review': '检查',
 };
 
+async function showMainWindow(): Promise<void> {
+  const mainWindow = await WebviewWindow.getByLabel('main');
+  if (!mainWindow) return;
+
+  await mainWindow.show().catch(() => {});
+  await mainWindow.unminimize().catch(() => {});
+  await mainWindow.setFocus().catch(() => {});
+}
+
 export function setupContextMenu(
   canvas: HTMLCanvasElement,
   renderer: SpriteRenderer,
-  onOpenSettings: () => void,
   folder: string,
 ): void {
   canvas.addEventListener('contextmenu', async (e: MouseEvent) => {
@@ -51,7 +60,13 @@ export function setupContextMenu(
         {
           id: 'main-window',
           text: '主界面',
-          action: () => onOpenSettings(),
+          action: () => {
+            void emit('pet-window-lower').catch(() => {});
+            void showMainWindow();
+            setTimeout(() => {
+              void emit('focus-pet-chat', { folder }).catch(() => {});
+            }, 50);
+          },
         },
         separator,
         {

@@ -1,4 +1,6 @@
 import {
+  answerAiToolQuestion,
+  cancelAiChatMessage,
   listenToAiChatEvents,
   listAiSessions,
   loadAiState,
@@ -13,6 +15,9 @@ import type {
   ChatMessage,
   ClaudeProviderState,
   Conversation,
+  ToolQuestionAnswerPayload,
+  ToolQuestionPartData,
+  ToolQuestionRequest,
 } from './ai-types';
 
 type Listener = () => void;
@@ -36,6 +41,7 @@ export class ChatRuntime {
   private currentAssistantId: string | null = null;
   private sessions: AiSessionSummary[] = [];
   private statusText = '';
+  private cancellingRequestId: string | null = null;
   private listeners = new Set<Listener>();
 
   async init(): Promise<void> {
@@ -81,6 +87,7 @@ export class ChatRuntime {
     this.conversationTitle = '';
     this.currentRequestId = null;
     this.currentAssistantId = null;
+    this.cancellingRequestId = null;
     this.statusText = folder ? '' : '请先选择桌宠工作空间';
     this.notify();
   }
@@ -116,6 +123,7 @@ export class ChatRuntime {
     };
     this.conversationTitle = '';
     this.currentAssistantId = null;
+    this.cancellingRequestId = null;
     this.statusText = this.workspaceFolder ? '' : '请先选择桌宠工作空间';
     this.notify();
   }
@@ -136,6 +144,7 @@ export class ChatRuntime {
     };
     this.conversationTitle = stored?.title || session.title || '';
     this.currentAssistantId = null;
+    this.cancellingRequestId = null;
     this.statusText = '';
     this.notify();
   }
@@ -178,6 +187,7 @@ export class ChatRuntime {
 
     this.currentRequestId = requestId;
     this.currentAssistantId = assistantMessage.id;
+    this.cancellingRequestId = null;
     if (!this.conversationTitle) {
       this.conversationTitle = createTitle(prompt || attachments[0]?.name || '文件');
     }
@@ -197,6 +207,70 @@ export class ChatRuntime {
       });
     } catch (error) {
       this.finishWithError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async interrupt(): Promise<void> {
+    const requestId = this.currentRequestId;
+    if (!requestId || this.cancellingRequestId === requestId) return;
+
+    this.cancellingRequestId = requestId;
+    this.statusText = '正在打断 Claude...';
+    this.notify();
+
+    try {
+      await cancelAiChatMessage(requestId);
+    } catch (error) {
+      if (this.currentRequestId !== requestId) return;
+      const message = error instanceof Error ? error.message : String(error);
+      this.finishWithError(message || '打断 Claude 失败。');
+    }
+  }
+
+  async answerToolQuestion(
+    partId: string,
+    questionId: string,
+    response: ToolQuestionAnswerPayload,
+  ): Promise<void> {
+    if (!this.workspaceFolder) return;
+
+    const request = this.updateToolQuestionPart(partId, (data) => ({
+      ...data,
+      status: 'submitting',
+      response,
+      error: undefined,
+    }));
+    if (!request) return;
+
+    this.statusText = '已发送选择，等待 Claude 继续...';
+    this.saveCurrentConversation();
+    this.notify();
+
+    try {
+      await answerAiToolQuestion({
+        requestId: request.requestId,
+        questionId,
+        response,
+      });
+      this.updateToolQuestionPart(partId, (data) => ({
+        ...data,
+        status: 'answered',
+        response,
+        error: undefined,
+      }));
+      this.saveCurrentConversation();
+      this.notify();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.updateToolQuestionPart(partId, (data) => ({
+        ...data,
+        status: 'error',
+        response,
+        error: message || '发送回答失败。',
+      }));
+      this.statusText = message || '发送回答失败。';
+      this.saveCurrentConversation();
+      this.notify();
     }
   }
 
@@ -238,11 +312,34 @@ export class ChatRuntime {
       return;
     }
 
+    if (event.type === 'question') {
+      const assistant = this.currentAssistant();
+      if (!assistant) return;
+      this.appendPart(assistant, {
+        kind: 'question',
+        title: event.question.title || questionTitle(event.question),
+        text: JSON.stringify({
+          ...event.question,
+          status: 'pending',
+        } satisfies ToolQuestionPartData),
+      });
+      assistant.pending = true;
+      this.statusText = '你的选择';
+      this.saveCurrentConversation();
+      this.notify();
+      return;
+    }
+
     if (event.type === 'done') {
       if (event.providerState) {
         this.mergeProviderState(event.providerState);
       }
       this.finish();
+      return;
+    }
+
+    if (event.type === 'cancelled') {
+      this.finishCancelled();
       return;
     }
 
@@ -274,6 +371,25 @@ export class ChatRuntime {
     });
   }
 
+  private updateToolQuestionPart(
+    partId: string,
+    update: (data: ToolQuestionPartData) => ToolQuestionPartData,
+  ): ToolQuestionPartData | null {
+    for (const message of this.conversation.messages) {
+      const part = message.parts.find((item) => item.id === partId && item.kind === 'question');
+      if (!part) continue;
+
+      const data = parseToolQuestionPartData(part.text);
+      if (!data) return null;
+      const next = update(data);
+      part.title = next.title || questionTitle(next);
+      part.text = JSON.stringify(next);
+      return next;
+    }
+
+    return null;
+  }
+
   private finish(): void {
     const assistant = this.currentAssistant();
     if (assistant) {
@@ -288,6 +404,7 @@ export class ChatRuntime {
     }
     this.currentRequestId = null;
     this.currentAssistantId = null;
+    this.cancellingRequestId = null;
     this.statusText = '';
     this.saveCurrentConversation();
     this.notify();
@@ -309,6 +426,27 @@ export class ChatRuntime {
     }
     this.currentRequestId = null;
     this.currentAssistantId = null;
+    this.cancellingRequestId = null;
+    this.statusText = '';
+    this.saveCurrentConversation();
+    this.notify();
+  }
+
+  private finishCancelled(): void {
+    const assistant = this.currentAssistant();
+    if (assistant) {
+      assistant.pending = false;
+      if (!assistant.parts.some((part) => part.text.trim())) {
+        assistant.parts.push({
+          id: crypto.randomUUID(),
+          kind: 'status',
+          text: '已打断。',
+        });
+      }
+    }
+    this.currentRequestId = null;
+    this.currentAssistantId = null;
+    this.cancellingRequestId = null;
     this.statusText = '';
     this.saveCurrentConversation();
     this.notify();
@@ -371,6 +509,35 @@ function createTitle(prompt: string): string {
 
 function conversationStorageKey(workspaceFolder: string, conversationId: string): string {
   return `mypets-chat-conversation:${workspaceFolder}:${conversationId}`;
+}
+
+function questionTitle(question: Pick<ToolQuestionRequest, 'kind' | 'toolName'>): string {
+  return question.kind === 'permission' ? `确认 ${question.toolName}` : '需要你的选择';
+}
+
+function parseToolQuestionPartData(text: string): ToolQuestionPartData | null {
+  try {
+    const value = JSON.parse(text) as Partial<ToolQuestionPartData>;
+    if (
+      typeof value.id !== 'string'
+      || typeof value.requestId !== 'string'
+      || typeof value.toolName !== 'string'
+      || typeof value.toolUseId !== 'string'
+      || (value.kind !== 'ask-user-question' && value.kind !== 'permission')
+      || !Array.isArray(value.questions)
+      || !isToolQuestionStatus(value.status)
+    ) {
+      return null;
+    }
+
+    return value as ToolQuestionPartData;
+  } catch {
+    return null;
+  }
+}
+
+function isToolQuestionStatus(value: unknown): value is ToolQuestionPartData['status'] {
+  return value === 'pending' || value === 'submitting' || value === 'answered' || value === 'error';
 }
 
 function isConversation(value: unknown): value is Conversation {

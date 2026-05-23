@@ -2,11 +2,12 @@ use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
+    collections::{HashMap, HashSet},
     fs::{self, OpenOptions},
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
-    sync::{Arc, Mutex},
+    process::{ChildStdin, Command, Stdio},
+    sync::{Arc, Mutex, OnceLock},
     thread,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -108,6 +109,14 @@ pub struct AiChatRequest {
     pub provider_state: Value,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiToolQuestionAnswerRequest {
+    pub request_id: String,
+    pub question_id: String,
+    pub response: Value,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AiSessionMeta {
@@ -137,6 +146,88 @@ struct StoragePaths {
     claude_dir: PathBuf,
     sessions_dir: PathBuf,
     log_file: PathBuf,
+}
+
+type ToolInputWriter = Arc<Mutex<ChildStdin>>;
+
+fn tool_input_writers() -> &'static Mutex<HashMap<String, ToolInputWriter>> {
+    static WRITERS: OnceLock<Mutex<HashMap<String, ToolInputWriter>>> = OnceLock::new();
+    WRITERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn active_ai_processes() -> &'static Mutex<HashMap<String, u32>> {
+    static PROCESSES: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
+    PROCESSES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn cancelled_ai_requests() -> &'static Mutex<HashSet<String>> {
+    static CANCELLED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    CANCELLED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn remove_tool_input_writer(request_id: &str) {
+    if let Ok(mut writers) = tool_input_writers().lock() {
+        writers.remove(request_id);
+    }
+}
+
+fn register_ai_process(request_id: &str, pid: u32) {
+    if let Ok(mut processes) = active_ai_processes().lock() {
+        processes.insert(request_id.to_string(), pid);
+    }
+}
+
+fn remove_ai_process(request_id: &str) {
+    if let Ok(mut processes) = active_ai_processes().lock() {
+        processes.remove(request_id);
+    }
+}
+
+fn mark_ai_request_cancelled(request_id: &str) {
+    if let Ok(mut cancelled) = cancelled_ai_requests().lock() {
+        cancelled.insert(request_id.to_string());
+    }
+}
+
+fn take_ai_request_cancelled(request_id: &str) -> bool {
+    cancelled_ai_requests()
+        .lock()
+        .map(|mut cancelled| cancelled.remove(request_id))
+        .unwrap_or(false)
+}
+
+#[cfg(target_os = "windows")]
+fn terminate_process_tree(pid: u32) -> Result<(), String> {
+    let pid_text = pid.to_string();
+    let status = Command::new("taskkill")
+        .args(["/PID", &pid_text, "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|err| format!("Cannot run taskkill: {err}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("taskkill exited with status {status}"))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn terminate_process_tree(pid: u32) -> Result<(), String> {
+    let pid_text = pid.to_string();
+    let status = Command::new("kill")
+        .args(["-TERM", &pid_text])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|err| format!("Cannot run kill: {err}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("kill exited with status {status}"))
+    }
 }
 
 impl Default for ClaudeSettings {
@@ -668,15 +759,33 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
             return Err(message);
         }
     };
+    let child_pid = child.id();
 
-    if let Some(stdin) = child.stdin.as_mut() {
-        if let Err(err) = stdin.write_all(payload.to_string().as_bytes()) {
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "Cannot write Claude helper input".to_string())?;
+    let stdin = Arc::new(Mutex::new(stdin));
+    {
+        let mut writer = stdin
+            .lock()
+            .map_err(|_| "Cannot lock Claude helper input".to_string())?;
+        if let Err(err) = writeln!(writer, "{}", payload) {
             let message = format!("Cannot write Claude helper input: {err}");
             append_ai_log(&paths, &message);
+            let _ = terminate_process_tree(child_pid);
+            return Err(message);
+        }
+        if let Err(err) = writer.flush() {
+            let message = format!("Cannot flush Claude helper input: {err}");
+            append_ai_log(&paths, &message);
+            let _ = terminate_process_tree(child_pid);
             return Err(message);
         }
     }
-    drop(child.stdin.take());
+    if let Ok(mut writers) = tool_input_writers().lock() {
+        writers.insert(request.request_id.clone(), Arc::clone(&stdin));
+    }
 
     let stdout = child
         .stdout
@@ -686,6 +795,7 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
         .stderr
         .take()
         .ok_or_else(|| "Cannot read Claude helper stderr".to_string())?;
+    register_ai_process(&request.request_id, child_pid);
     let app_for_stdout = app.clone();
     let app_for_stderr = app.clone();
     let request_id_for_stdout = request.request_id.clone();
@@ -739,8 +849,12 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
             let _ = app_for_stdout.emit("ai-chat-event", event);
         }
 
-        match child.wait() {
-            Ok(status) if status.success() => {}
+        let wait_result = child.wait();
+        let was_cancelled = take_ai_request_cancelled(&request_id_for_stdout);
+        remove_ai_process(&request_id_for_stdout);
+
+        match wait_result {
+            Ok(status) if status.success() || was_cancelled => {}
             Ok(status) => {
                 let stderr_text = stderr_buffer
                     .lock()
@@ -765,7 +879,58 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
                 );
             }
         }
+        remove_tool_input_writer(&request_id_for_stdout);
     });
 
     Ok(request.request_id)
+}
+
+#[tauri::command]
+pub fn cancel_ai_chat_message(app: AppHandle, request_id: String) -> Result<(), String> {
+    let request_id = request_id.trim().to_string();
+    if request_id.is_empty() {
+        return Err("Missing AI request id".to_string());
+    }
+
+    let pid = active_ai_processes()
+        .lock()
+        .map_err(|_| "Cannot access active Claude helpers".to_string())?
+        .get(&request_id)
+        .copied();
+
+    mark_ai_request_cancelled(&request_id);
+    remove_tool_input_writer(&request_id);
+    if let Some(pid) = pid {
+        let _ = terminate_process_tree(pid);
+    }
+
+    let _ = app.emit(
+        "ai-chat-event",
+        json!({ "type": "cancelled", "requestId": request_id }),
+    );
+    Ok(())
+}
+
+#[tauri::command]
+pub fn answer_ai_tool_question(request: AiToolQuestionAnswerRequest) -> Result<(), String> {
+    let writer = tool_input_writers()
+        .lock()
+        .map_err(|_| "Cannot access Claude helper input".to_string())?
+        .get(&request.request_id)
+        .cloned()
+        .ok_or_else(|| "Claude request is no longer waiting for input".to_string())?;
+
+    let payload = json!({
+        "type": "tool_response",
+        "requestId": request.request_id,
+        "questionId": request.question_id,
+        "response": request.response,
+    });
+    let mut writer = writer
+        .lock()
+        .map_err(|_| "Cannot lock Claude helper input".to_string())?;
+    writeln!(writer, "{}", payload).map_err(|err| format!("Cannot write tool response: {err}"))?;
+    writer
+        .flush()
+        .map_err(|err| format!("Cannot flush tool response: {err}"))
 }

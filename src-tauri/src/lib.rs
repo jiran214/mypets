@@ -15,6 +15,7 @@ const TRAY_QUIT_ID: &str = "tray-quit-app";
 fn show_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.show();
+        let _ = window.unminimize();
         let _ = window.set_focus();
     }
 }
@@ -92,6 +93,8 @@ pub fn run() {
             ai::list_skills,
             ai::save_dropped_chat_file,
             ai::send_ai_chat_message,
+            ai::cancel_ai_chat_message,
+            ai::answer_ai_tool_question,
             pet::delete_pet_workspace,
             pet::load_pet,
             pet::load_spritesheet,

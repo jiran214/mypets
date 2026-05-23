@@ -35,14 +35,24 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 
 ### Tauri IPC 命令
 
-前端通过 `invoke()` 调用 7 个 Rust 命令（注册在 [lib.rs](src-tauri/src/lib.rs)）：
-- `load_pet` — 读取并校验 pet 文件夹中的 `pet.json`
-- `load_spritesheet` — 读取图片文件并返回 base64 data URL
-- `delete_pet_workspace` — 将宠物文件夹移入回收站（`trash` crate）
+前端通过 `invoke()` 调用 Rust 命令（注册在 [lib.rs](src-tauri/src/lib.rs)）：
+
+**AI 命令（src-tauri/src/ai.rs）：**
 - `load_ai_state` — 加载工作空间的 AI 设置和路径
 - `list_ai_sessions` — 列出对话会话元数据文件
 - `save_ai_settings` — 保存 AI 设置到 `.mypets-ai/settings.json`
+- `list_skills` — 列出可用的 skill 文件（全局 + 工作空间级别）
+- `save_dropped_chat_file` — 保存拖入聊天的文件到工作空间
 - `send_ai_chat_message` — 启动 Claude 子进程，通过 Tauri event 系统流式返回结果
+- `cancel_ai_chat_message` — 取消正在进行的 AI 请求（向子进程发送 SIGINT）
+- `answer_ai_tool_question` — 回答 Claude 的工具调用问题（权限确认或多选问答）
+
+**宠物命令（src-tauri/src/pet.rs）：**
+- `load_pet` — 读取并校验 pet 文件夹中的 `pet.json`
+- `load_spritesheet` — 读取图片文件并返回 base64 data URL
+- `delete_pet_workspace` — 将宠物文件夹移入回收站（`trash` crate）
+- `open_workspace_in_file_manager` — 在系统文件管理器中打开工作空间
+- `update_pet_display_name` — 更新宠物显示名称
 
 所有文件系统访问在 Rust 侧完成，前端只接收元数据和 base64 图片，这是刻意的安全边界。
 
@@ -57,7 +67,10 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 5. Rust 读取 stdout，通过 `app.emit("ai-chat-event", event)` 转发到前端
 6. 前端 `listenToAiChatEvents()` 监听事件，`ChatRuntime` 更新状态并通知 UI
 
-事件类型定义在 [ai-types.ts](src/ai-types.ts)：`status`、`session`、`part`、`delta`、`done`、`error`。
+事件类型定义在 [ai-types.ts](src/ai-types.ts)：`status`、`session`、`part`、`delta`、`question`、`done`、`cancelled`、`error`。
+
+- `question` 事件用于 Claude 请求用户输入（权限确认或多选问答），前端通过 `answerAiToolQuestion()` 回应
+- `cancelled` 事件在用户中断请求后触发
 
 AI 设置存储在每个工作空间的 `.mypets-ai/settings.json`，会话元数据在 `.mypets-ai/sessions/`，日志在 `.mypets-ai/logs/ai.log`。
 
@@ -84,7 +97,8 @@ AI 设置存储在每个工作空间的 `.mypets-ai/settings.json`，会话元�
 - 主窗口使用 React 组件（`chat-ui.tsx`），宠物模式气泡使用原生 DOM 挂载
 - 左键单击宠物 canvas 切换气泡开关，气泡窗口尺寸自动调整并跟随宠物位置
 - `ChatRuntime` 是纯状态机（无框架），通过 `subscribe/notify` 模式驱动 React 和原生 UI 更新
-- AI 聊天组件（`components/ai-elements/`）提供流式消息渲染、代码高亮、工具调用展示等
+- AI 聊天组件（`components/ai-elements/`）提供流式消息渲染、代码高亮、工具调用展示、权限确认问答等
+- 支持文件附件：拖拽文件到聊天框，通过 `saveDroppedChatFile` 保存到工作空间后作为附件发送
 
 ### 宠物文件夹约定
 
@@ -112,11 +126,11 @@ AI 设置存储在每个工作空间的 `.mypets-ai/settings.json`，会话元�
 
 `components.json` 定义了 shadcn/ui 的配置：使用 `radix-nova` 风格，Tailwind CSS 变量模式，lucide 图标库。组件安装到 `@/components/ui`，工具函数在 `@/lib/utils`。
 
-AI 聊天专用组件在 `src/components/ai-elements/`：流式对话、消息渲染、代码块、工具调用展示、推理过程、附件、提示输入框等。
+AI 聊天专用组件在 `src/components/ai-elements/`：流式对话、消息渲染、代码块、工具调用展示、推理过程、附件、权限确认问答、提示输入框等。
 
 ## 关键依赖
 
-- **NPM:** `@tauri-apps/api` ^2、`@tauri-apps/plugin-dialog` ^2、`@anthropic-ai/claude-agent-sdk` ^0.3、`typescript` ~5.6、`vite` ^6、`react` 19、`tailwindcss` ^4、`shadcn` ^4、`streamdown`（流式 Markdown 渲染）、`motion`（动画）、`shiki`（代码高亮）
+- **NPM:** `@tauri-apps/api` ^2、`@tauri-apps/plugin-dialog` ^2、`@anthropic-ai/claude-agent-sdk` ^0.3、`typescript` ~5.6、`vite` ^6、`react` 19、`tailwindcss` ^4、`shadcn` ^4、`streamdown`（流式 Markdown 渲染）、`motion`（动画）、`shiki`（代码高亮）、`ai`（Vercel AI SDK，用于部分类型定义）
 - **Cargo:** `tauri` 2 (带 `tray-icon`、`protocol-asset`)、`tauri-plugin-dialog` 2、`serde` + `serde_json` 1、`base64` 0.22、`trash` 5
 
 ## 安全模型
