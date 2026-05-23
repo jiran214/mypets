@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -66,9 +67,24 @@ pub struct AiState {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiChatAttachment {
+    #[serde(default = "default_attachment_kind")]
+    pub kind: String,
+    #[serde(default)]
     pub path: String,
     #[serde(default)]
     pub name: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub media_type: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedDroppedChatFile {
+    pub path: String,
+    pub name: String,
+    pub media_type: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,6 +159,10 @@ fn default_provider_id() -> String {
 
 fn default_permission_mode() -> String {
     "default".to_string()
+}
+
+fn default_attachment_kind() -> String {
+    "file".to_string()
 }
 
 fn now_ms() -> u64 {
@@ -305,11 +325,43 @@ fn attachment_title(attachment: &AiChatAttachment) -> String {
     if !attachment.name.trim().is_empty() {
         return attachment.name.clone();
     }
+    if attachment.kind == "text" {
+        let title = attachment.text.chars().take(40).collect::<String>();
+        return if title.trim().is_empty() {
+            "拖入文本".to_string()
+        } else {
+            title
+        };
+    }
     Path::new(&attachment.path)
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(&attachment.path)
         .to_string()
+}
+
+fn safe_dropped_file_name(name: &str) -> String {
+    let base = Path::new(name)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("dropped-file")
+        .trim();
+    let sanitized: String = base
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_' | ' ') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = sanitized.trim_matches([' ', '.']);
+    if trimmed.is_empty() {
+        "dropped-file".to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn read_session_meta(path: &Path) -> Option<AiSessionSummary> {
@@ -490,6 +542,33 @@ pub fn list_skills(workspace_folder: String) -> Result<Vec<SkillInfo>, String> {
     }
 
     Ok(skills)
+}
+
+#[tauri::command]
+pub fn save_dropped_chat_file(
+    workspace_folder: String,
+    name: String,
+    media_type: String,
+    data_base64: String,
+) -> Result<SavedDroppedChatFile, String> {
+    let paths = storage_paths(&workspace_folder)?;
+    ensure_storage(&paths)?;
+
+    let file_bytes = general_purpose::STANDARD
+        .decode(data_base64)
+        .map_err(|err| format!("Cannot decode dropped file: {err}"))?;
+    let file_name = safe_dropped_file_name(&name);
+    let drop_dir = paths.mypets_ai_dir.join("dropped-files");
+    fs::create_dir_all(&drop_dir).map_err(|err| err.to_string())?;
+
+    let path = drop_dir.join(format!("{}-{file_name}", now_ms()));
+    fs::write(&path, file_bytes).map_err(|err| format!("Cannot save dropped file: {err}"))?;
+
+    Ok(SavedDroppedChatFile {
+        path: path_to_string(&path),
+        name: file_name,
+        media_type,
+    })
 }
 
 #[tauri::command]

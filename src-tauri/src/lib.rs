@@ -90,6 +90,7 @@ pub fn run() {
             ai::list_ai_sessions,
             ai::save_ai_settings,
             ai::list_skills,
+            ai::save_dropped_chat_file,
             ai::send_ai_chat_message,
             pet::delete_pet_workspace,
             pet::load_pet,

@@ -163,9 +163,9 @@ export class ChatRuntime {
         ...(prompt ? [{ id: crypto.randomUUID(), kind: 'text' as const, text: prompt }] : []),
         ...attachments.map((attachment) => ({
           id: crypto.randomUUID(),
-          kind: 'path' as const,
+          kind: attachment.kind === 'text' ? 'attachment' as const : 'path' as const,
           title: attachment.name,
-          text: attachment.path,
+          text: attachment.kind === 'text' ? attachment.text ?? '' : attachment.path ?? '',
         })),
       ],
     };

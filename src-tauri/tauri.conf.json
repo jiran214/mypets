@@ -15,6 +15,7 @@
         "label": "main",
         "title": "Mypets",
         "transparent": true,
+        "dragDropEnabled": false,
         "decorations": true,
         "shadow": false,
         "resizable": false,

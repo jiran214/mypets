@@ -40,11 +40,25 @@ function normalizeAttachments(value) {
 
   return value
     .map((item) => {
+      const kind = asOptionalString(item?.kind) ?? (asOptionalString(item?.path) ? 'file' : 'text');
+      if (kind === 'text') {
+        const text = asOptionalString(item?.text);
+        if (!text) return undefined;
+        return {
+          kind: 'text',
+          text,
+          name: asOptionalString(item?.name) ?? '拖入文本',
+          mediaType: asOptionalString(item?.mediaType) ?? 'text/plain',
+        };
+      }
+
       const path = asOptionalString(item?.path);
       if (!path) return undefined;
       return {
+        kind: 'file',
         path: normalize(path),
         name: asOptionalString(item?.name) ?? fileNameFromPath(path),
+        mediaType: asOptionalString(item?.mediaType),
       };
     })
     .filter(Boolean);
@@ -53,6 +67,7 @@ function normalizeAttachments(value) {
 function attachmentDirectories(attachments) {
   const directories = new Set();
   for (const attachment of attachments) {
+    if (attachment.kind !== 'file') continue;
     const stat = statPath(attachment.path);
     if (!stat) continue;
     directories.add(stat.isDirectory() ? attachment.path : dirname(attachment.path));
@@ -65,6 +80,10 @@ function isTextBuffer(buffer) {
 }
 
 function renderAttachmentContext(attachment) {
+  if (attachment.kind === 'text') {
+    return `### ${attachment.name}\n类型: 拖入文本\n内容:\n${attachment.text}`;
+  }
+
   const stat = statPath(attachment.path);
   const header = `### ${attachment.name}\n路径: ${attachment.path}`;
   if (!stat) return `${header}\n状态: 文件不存在或不可访问。`;
@@ -98,8 +117,8 @@ function buildPrompt(input, attachments) {
     ? prompt
     : (() => {
         const context = attachments.map(renderAttachmentContext).join('\n\n');
-        const userText = prompt || '请查看这些上传文件。';
-        return `${userText}\n\n用户上传了以下文件，作为本轮聊天上下文。小文本文件内容已直接附在下面；其它文件请按路径读取。\n\n${context}`;
+        const userText = prompt || '请查看这些拖入的上下文。';
+        return `${userText}\n\n用户拖入了以下内容，作为本轮聊天上下文。小文本文件内容和拖入文本已直接附在下面；其它文件请按路径读取。\n\n${context}`;
       })();
 
   return [personaContext, userPrompt].filter(Boolean).join('\n\n---\n\n');

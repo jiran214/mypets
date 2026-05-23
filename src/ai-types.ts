@@ -46,7 +46,7 @@ export interface ChatMessage {
   error?: boolean;
 }
 
-export type ChatPartKind = 'text' | 'thinking' | 'plan' | 'tool' | 'mcp' | 'skill' | 'path' | 'status';
+export type ChatPartKind = 'text' | 'thinking' | 'plan' | 'tool' | 'mcp' | 'skill' | 'path' | 'attachment' | 'status';
 
 export interface ChatMessagePart {
   id: string;
@@ -64,8 +64,17 @@ export interface Conversation {
 
 export interface ChatAttachment {
   id: string;
+  kind: 'file' | 'text';
+  name: string;
+  path?: string;
+  text?: string;
+  mediaType?: string;
+}
+
+export interface SavedDroppedChatFile {
   path: string;
   name: string;
+  mediaType: string;
 }
 
 export interface SkillInfo {
