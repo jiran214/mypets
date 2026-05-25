@@ -2,7 +2,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, process::Command};
 
-use crate::ai::{AiSettings, PetOverrides};
+use crate::ai::AiSettings;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -24,23 +24,13 @@ pub fn load_pet(folder: String) -> Result<PetMeta, String> {
     let mut meta: PetMeta =
         serde_json::from_str(&json_str).map_err(|e| format!("Invalid pet.json: {}", e))?;
 
-    // Merge overrides from .wimipet/settings.json
+    // Merge displayName from .wimipet/settings.json
     let settings_path = folder_path.join(".wimipet").join("settings.json");
     if settings_path.exists() {
         if let Ok(raw) = std::fs::read_to_string(&settings_path) {
             if let Ok(settings) = serde_json::from_str::<AiSettings>(&raw) {
-                if let Some(name) = settings.pet_overrides.display_name {
-                    if !name.trim().is_empty() {
-                        meta.display_name = name;
-                    }
-                }
-                if let Some(desc) = settings.pet_overrides.description {
-                    meta.description = desc;
-                }
-                if let Some(sheet) = settings.pet_overrides.spritesheet_path {
-                    if !sheet.trim().is_empty() {
-                        meta.spritesheet_path = sheet;
-                    }
+                if !settings.display_name.trim().is_empty() {
+                    meta.display_name = settings.display_name;
                 }
             }
         }
@@ -55,50 +45,43 @@ pub fn load_pet(folder: String) -> Result<PetMeta, String> {
 }
 
 #[tauri::command]
-pub fn update_pet_overrides(
-    folder: String,
-    display_name: Option<String>,
-    description: Option<String>,
-    spritesheet_path: Option<String>,
-) -> Result<PetMeta, String> {
-    if let Some(ref name) = display_name {
-        if name.trim().is_empty() {
-            return Err("桌宠名不能为空".to_string());
-        }
-    }
-
-    let folder_path = PathBuf::from(&folder);
-    let wimipet_dir = folder_path.join(".wimipet");
-    std::fs::create_dir_all(&wimipet_dir)
-        .map_err(|e| format!("Cannot create .wimipet dir: {}", e))?;
-    let settings_path = wimipet_dir.join("settings.json");
-
-    let mut settings: AiSettings = if settings_path.exists() {
-        let raw = std::fs::read_to_string(&settings_path)
-            .map_err(|e| format!("Cannot read settings: {}", e))?;
-        serde_json::from_str(&raw).map_err(|e| format!("Invalid settings: {}", e))?
-    } else {
-        AiSettings::default()
-    };
-
-    settings.pet_overrides = PetOverrides {
-        display_name,
-        description,
-        spritesheet_path,
-    };
-
-    let raw = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
-    std::fs::write(&settings_path, format!("{raw}\n"))
-        .map_err(|e| format!("Cannot write settings: {}", e))?;
-
-    load_pet(folder)
-}
-
-#[tauri::command]
 pub fn load_spritesheet(path: String) -> Result<String, String> {
     let data = std::fs::read(&path).map_err(|e| format!("Cannot read spritesheet: {}", e))?;
+    let mime = image_mime_type(&path, &data);
     let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
-    Ok(format!("data:image/png;base64,{}", b64))
+    Ok(format!("data:{};base64,{}", mime, b64))
+}
+
+fn image_mime_type(path: &str, data: &[u8]) -> &'static str {
+    if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return "image/png";
+    }
+    if data.starts_with(b"\xff\xd8\xff") {
+        return "image/jpeg";
+    }
+    if data.len() >= 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+        return "image/webp";
+    }
+    if data.starts_with(b"GIF87a") || data.starts_with(b"GIF89a") {
+        return "image/gif";
+    }
+    if data.starts_with(b"BM") {
+        return "image/bmp";
+    }
+
+    match PathBuf::from(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        Some("bmp") => "image/bmp",
+        Some("svg") => "image/svg+xml",
+        _ => "image/png",
+    }
 }
 
 #[tauri::command]

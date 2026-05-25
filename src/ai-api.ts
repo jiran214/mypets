@@ -7,6 +7,7 @@ import type {
   AiSettings,
   AiState,
   AiToolQuestionAnswerRequest,
+  PiProviderAuth,
   ProviderId,
   SavedDroppedChatFile,
   SkillInfo,
@@ -22,6 +23,14 @@ export function listAiSessions(workspaceFolder: string): Promise<AiSessionSummar
 
 export function saveAiSettings(workspaceFolder: string, settings: AiSettings): Promise<AiState> {
   return invoke<AiState>('save_ai_settings', { workspaceFolder, settings });
+}
+
+export function loadPiProviderAuth(provider: string, authKey: string): Promise<PiProviderAuth> {
+  return invoke<PiProviderAuth>('load_pi_provider_auth', { provider, authKey });
+}
+
+export function savePiProviderAuth(provider: string, authKey: string, key: string): Promise<PiProviderAuth> {
+  return invoke<PiProviderAuth>('save_pi_provider_auth', { provider, authKey, key });
 }
 
 export function listSkills(workspaceFolder: string, providerId: ProviderId): Promise<SkillInfo[]> {

@@ -23,7 +23,7 @@ import type {
 
 type Listener = () => void;
 
-interface StoredConversation {
+export interface StoredConversation {
   title: string;
   conversation: Conversation;
 }
@@ -33,7 +33,7 @@ export class ChatRuntime {
   private workspaceFolder = '';
   private conversation: Conversation = {
     id: `conv-${Date.now()}`,
-    providerId: 'claude',
+    providerId: 'pi',
     providerState: {},
     messages: [],
   };
@@ -512,7 +512,8 @@ export class ChatRuntime {
   }
 
   private providerLabel(providerId: ProviderId = this.conversation.providerId): string {
-    return providerId === 'codex' ? 'Codex' : 'Claude';
+    if (providerId === 'pi') return 'Pi';
+    return providerId === 'codex' ? 'Codex' : 'Claude Code';
   }
 }
 
@@ -521,7 +522,7 @@ function createTitle(prompt: string): string {
   return compact.length > 28 ? `${compact.slice(0, 28)}...` : compact;
 }
 
-function conversationStorageKey(workspaceFolder: string, conversationId: string): string {
+export function conversationStorageKey(workspaceFolder: string, conversationId: string): string {
   return `wimipet-chat-conversation:${workspaceFolder}:${conversationId}`;
 }
 
@@ -559,7 +560,7 @@ function isConversation(value: unknown): value is Conversation {
   const conversation = value as Partial<Conversation>;
   return (
     typeof conversation.id === 'string'
-    && (conversation.providerId === 'claude' || conversation.providerId === 'codex')
+    && (conversation.providerId === 'pi' || conversation.providerId === 'claude' || conversation.providerId === 'codex')
     && typeof conversation.providerState === 'object'
     && Array.isArray(conversation.messages)
   );

@@ -90,6 +90,11 @@ pub fn run() {
             ai::load_ai_state,
             ai::list_ai_sessions,
             ai::save_ai_settings,
+            ai::load_pi_provider_auth,
+            ai::save_pi_provider_auth,
+            ai::list_auto_tasks,
+            ai::save_auto_task,
+            ai::delete_auto_task,
             ai::list_skills,
             ai::save_dropped_chat_file,
             ai::send_ai_chat_message,
@@ -99,7 +104,6 @@ pub fn run() {
             pet::load_pet,
             pet::load_spritesheet,
             pet::open_workspace_in_file_manager,
-            pet::update_pet_overrides,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

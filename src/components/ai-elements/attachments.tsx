@@ -210,7 +210,7 @@ export const Attachment = ({
           variant === "inline" && [
             "flex h-7 max-w-64 min-w-0 cursor-pointer select-none items-center gap-1.5",
             "rounded-md px-1.5",
-            "font-medium text-sm transition-all",
+            "font-medium text-sm transition-colors",
             "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
           ],
           variant === "list" && [

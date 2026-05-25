@@ -24,6 +24,37 @@ pub struct SkillInfo {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct PiSettings {
+    #[serde(default)]
+    pub path_to_pi_executable: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default = "default_pi_thinking_level")]
+    pub thinking_level: String,
+    #[serde(default)]
+    pub session_dir: String,
+    #[serde(default)]
+    pub use_no_session: bool,
+    #[serde(default = "default_pi_auto_compaction_enabled")]
+    pub auto_compaction_enabled: bool,
+    #[serde(default = "default_pi_auto_retry_enabled")]
+    pub auto_retry_enabled: bool,
+    #[serde(default = "default_pi_queue_mode")]
+    pub steering_mode: String,
+    #[serde(default = "default_pi_queue_mode")]
+    pub follow_up_mode: String,
+    #[serde(default)]
+    pub custom_env_text: String,
+    #[serde(default)]
+    pub disabled_skills: Vec<String>,
+    #[serde(default)]
+    pub extra_skill_paths: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ClaudeSettings {
     #[serde(default)]
     pub path_to_claude_code_executable: String,
@@ -36,7 +67,7 @@ pub struct ClaudeSettings {
     #[serde(default)]
     pub custom_env_text: String,
     #[serde(default)]
-    pub enabled_skills: Vec<String>,
+    pub disabled_skills: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -52,17 +83,8 @@ pub struct CodexSettings {
     pub reasoning_effort: String,
     #[serde(default)]
     pub custom_env_text: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct PetOverrides {
     #[serde(default)]
-    pub display_name: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub spritesheet_path: Option<String>,
+    pub disabled_skills: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -81,11 +103,13 @@ pub struct AiSettings {
     #[serde(default = "default_pet_persona")]
     pub pet_persona: String,
     #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub pi: PiSettings,
+    #[serde(default)]
     pub claude: ClaudeSettings,
     #[serde(default)]
     pub codex: CodexSettings,
-    #[serde(default)]
-    pub pet_overrides: PetOverrides,
 }
 
 #[derive(Debug, Serialize)]
@@ -103,6 +127,14 @@ pub struct AiPaths {
 pub struct AiState {
     pub settings: AiSettings,
     pub paths: AiPaths,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PiProviderAuth {
+    pub provider: String,
+    pub auth_key: String,
+    pub key: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -136,6 +168,12 @@ pub struct AiChatRequest {
     pub workspace_folder: String,
     #[serde(default = "default_provider_id")]
     pub provider_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub auto_task_id: String,
+    #[serde(default)]
+    pub auto_task_name: String,
     pub prompt: String,
     #[serde(default)]
     pub attachments: Vec<AiChatAttachment>,
@@ -160,6 +198,10 @@ struct AiSessionMeta {
     title: String,
     created_at: u64,
     updated_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    auto_task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    auto_task_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -171,6 +213,56 @@ pub struct AiSessionSummary {
     title: String,
     created_at: u64,
     updated_at: u64,
+    auto_task_id: Option<String>,
+    auto_task_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoTaskSchedule {
+    #[serde(default = "default_auto_task_schedule_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub time: String,
+    #[serde(default)]
+    pub weekday: Option<u8>,
+    #[serde(default)]
+    pub interval_value: Option<u32>,
+    #[serde(default)]
+    pub interval_unit: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoTask {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub prompt: String,
+    #[serde(default)]
+    pub schedule: AutoTaskSchedule,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub created_at: u64,
+    #[serde(default)]
+    pub updated_at: u64,
+    #[serde(default)]
+    pub next_run_at: Option<u64>,
+    #[serde(default)]
+    pub last_run_at: Option<u64>,
+    #[serde(default)]
+    pub last_status_at: Option<u64>,
+    #[serde(default = "default_auto_task_status")]
+    pub last_status: String,
+    #[serde(default)]
+    pub last_error: String,
+    #[serde(default)]
+    pub run_count: u32,
+    #[serde(default)]
+    pub current_conversation_id: String,
 }
 
 #[derive(Clone)]
@@ -272,7 +364,27 @@ impl Default for ClaudeSettings {
             thinking_intensity: default_thinking_intensity(),
             use_user_settings: false,
             custom_env_text: String::new(),
-            enabled_skills: Vec::new(),
+            disabled_skills: Vec::new(),
+        }
+    }
+}
+
+impl Default for PiSettings {
+    fn default() -> Self {
+        Self {
+            path_to_pi_executable: String::new(),
+            provider: String::new(),
+            model: String::new(),
+            thinking_level: default_pi_thinking_level(),
+            session_dir: String::new(),
+            use_no_session: false,
+            auto_compaction_enabled: default_pi_auto_compaction_enabled(),
+            auto_retry_enabled: default_pi_auto_retry_enabled(),
+            steering_mode: default_pi_queue_mode(),
+            follow_up_mode: default_pi_queue_mode(),
+            custom_env_text: String::new(),
+            disabled_skills: Vec::new(),
+            extra_skill_paths: String::new(),
         }
     }
 }
@@ -285,6 +397,7 @@ impl Default for CodexSettings {
             approval_policy: default_codex_approval_policy(),
             reasoning_effort: default_codex_reasoning_effort(),
             custom_env_text: String::new(),
+            disabled_skills: Vec::new(),
         }
     }
 }
@@ -298,15 +411,44 @@ impl Default for AiSettings {
             pet_scale: default_pet_scale(),
             pet_resize_enabled: false,
             pet_persona: default_pet_persona(),
+            display_name: String::new(),
+            pi: PiSettings::default(),
             claude: ClaudeSettings::default(),
             codex: CodexSettings::default(),
-            pet_overrides: PetOverrides::default(),
+        }
+    }
+}
+
+impl Default for AutoTaskSchedule {
+    fn default() -> Self {
+        Self {
+            kind: default_auto_task_schedule_kind(),
+            time: "09:00".to_string(),
+            weekday: Some(1),
+            interval_value: Some(30),
+            interval_unit: "minutes".to_string(),
         }
     }
 }
 
 fn default_provider_id() -> String {
-    "claude".to_string()
+    "pi".to_string()
+}
+
+fn default_pi_thinking_level() -> String {
+    "medium".to_string()
+}
+
+fn default_pi_auto_compaction_enabled() -> bool {
+    true
+}
+
+fn default_pi_auto_retry_enabled() -> bool {
+    true
+}
+
+fn default_pi_queue_mode() -> String {
+    "one-at-a-time".to_string()
 }
 
 fn default_permission_mode() -> String {
@@ -339,6 +481,14 @@ fn default_pet_persona() -> String {
 
 fn default_attachment_kind() -> String {
     "file".to_string()
+}
+
+fn default_auto_task_schedule_kind() -> String {
+    "interval".to_string()
+}
+
+fn default_auto_task_status() -> String {
+    "idle".to_string()
 }
 
 fn now_ms() -> u64 {
@@ -399,6 +549,9 @@ fn ensure_storage(paths: &StoragePaths) -> Result<(), String> {
     fs::create_dir_all(paths.claude_dir.join("skills")).map_err(|err| err.to_string())?;
     fs::create_dir_all(paths.claude_dir.join("agents")).map_err(|err| err.to_string())?;
     fs::create_dir_all(paths.claude_dir.join("projects")).map_err(|err| err.to_string())?;
+    let pi_dir = paths.workspace_dir.join(".pi");
+    fs::create_dir_all(pi_dir.join("skills")).map_err(|err| err.to_string())?;
+    fs::create_dir_all(pi_dir.join("prompts")).map_err(|err| err.to_string())?;
 
     let settings_path = paths.claude_dir.join("settings.json");
     if !settings_path.exists() {
@@ -408,6 +561,11 @@ fn ensure_storage(paths: &StoragePaths) -> Result<(), String> {
     let mcp_path = paths.claude_dir.join("mcp.json");
     if !mcp_path.exists() {
         fs::write(&mcp_path, "{\n  \"mcpServers\": {}\n}\n").map_err(|err| err.to_string())?;
+    }
+
+    let pi_settings_path = pi_dir.join("settings.json");
+    if !pi_settings_path.exists() {
+        fs::write(&pi_settings_path, "{\n}\n").map_err(|err| err.to_string())?;
     }
 
     Ok(())
@@ -432,6 +590,46 @@ fn ai_settings_path(paths: &StoragePaths) -> PathBuf {
     paths.wimipet_dir.join("settings.json")
 }
 
+fn auto_tasks_path(paths: &StoragePaths) -> PathBuf {
+    paths.wimipet_dir.join("auto-tasks.json")
+}
+
+fn pi_auth_path() -> Result<PathBuf, String> {
+    let home = home_dir().ok_or_else(|| "Cannot resolve user home directory".to_string())?;
+    Ok(home.join(".pi").join("agent").join("auth.json"))
+}
+
+fn safe_pi_auth_key(provider: &str, auth_key: &str) -> Result<String, String> {
+    let key = if auth_key.trim().is_empty() {
+        provider.trim()
+    } else {
+        auth_key.trim()
+    };
+    if key.is_empty() {
+        return Err("Pi provider is required".to_string());
+    }
+    if !key
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+    {
+        return Err("Invalid Pi auth key".to_string());
+    }
+    Ok(key.to_string())
+}
+
+fn read_pi_auth_file(path: &Path) -> Result<serde_json::Map<String, Value>, String> {
+    if !path.exists() {
+        return Ok(serde_json::Map::new());
+    }
+    let raw = fs::read_to_string(path).map_err(|err| format!("Cannot read Pi auth file: {err}"))?;
+    if raw.trim().is_empty() {
+        return Ok(serde_json::Map::new());
+    }
+    let value: Value =
+        serde_json::from_str(&raw).map_err(|err| format!("Invalid Pi auth file: {err}"))?;
+    Ok(value.as_object().cloned().unwrap_or_default())
+}
+
 fn load_settings(paths: &StoragePaths) -> Result<AiSettings, String> {
     let path = ai_settings_path(paths);
     if !path.exists() {
@@ -447,6 +645,21 @@ fn load_settings(paths: &StoragePaths) -> Result<AiSettings, String> {
 fn save_settings(paths: &StoragePaths, settings: &AiSettings) -> Result<(), String> {
     let raw = serde_json::to_string_pretty(settings).map_err(|err| err.to_string())?;
     fs::write(ai_settings_path(paths), format!("{raw}\n")).map_err(|err| err.to_string())
+}
+
+fn load_auto_tasks(paths: &StoragePaths) -> Result<Vec<AutoTask>, String> {
+    let path = auto_tasks_path(paths);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let raw = fs::read_to_string(&path).map_err(|err| format!("Cannot read auto tasks: {err}"))?;
+    serde_json::from_str(&raw).map_err(|err| format!("Invalid auto tasks: {err}"))
+}
+
+fn save_auto_tasks_file(paths: &StoragePaths, tasks: &[AutoTask]) -> Result<(), String> {
+    let raw = serde_json::to_string_pretty(tasks).map_err(|err| err.to_string())?;
+    fs::write(auto_tasks_path(paths), format!("{raw}\n")).map_err(|err| err.to_string())
 }
 
 fn session_meta_path(paths: &StoragePaths, conversation_id: &str) -> PathBuf {
@@ -469,6 +682,9 @@ fn write_session_meta(
     provider_id: &str,
     provider_state: Value,
     prompt: &str,
+    title: &str,
+    auto_task_id: &str,
+    auto_task_name: &str,
 ) -> Result<(), String> {
     let path = session_meta_path(paths, conversation_id);
     let now = now_ms();
@@ -479,20 +695,42 @@ fn write_session_meta(
     } else {
         None
     };
-    let title = existing_meta
+    let existing_auto_task_id = existing_meta
         .as_ref()
-        .map(|meta| meta.title.clone())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| prompt.chars().take(40).collect::<String>());
+        .and_then(|meta| meta.auto_task_id.clone());
+    let existing_auto_task_name = existing_meta
+        .as_ref()
+        .and_then(|meta| meta.auto_task_name.clone());
+    let meta_title = if title.trim().is_empty() {
+        existing_meta
+            .as_ref()
+            .map(|meta| meta.title.clone())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| prompt.chars().take(40).collect::<String>())
+    } else {
+        title.trim().to_string()
+    };
     let created_at = existing_meta.map(|meta| meta.created_at).unwrap_or(now);
+    let auto_task_id = if auto_task_id.trim().is_empty() {
+        existing_auto_task_id
+    } else {
+        Some(auto_task_id.trim().to_string())
+    };
+    let auto_task_name = if auto_task_name.trim().is_empty() {
+        existing_auto_task_name
+    } else {
+        Some(auto_task_name.trim().to_string())
+    };
 
     let meta = AiSessionMeta {
         id: conversation_id.to_string(),
         provider_id: provider_id.to_string(),
         provider_state,
-        title,
+        title: meta_title,
         created_at,
         updated_at: now,
+        auto_task_id,
+        auto_task_name,
     };
     let raw = serde_json::to_string_pretty(&meta).map_err(|err| err.to_string())?;
     fs::write(path, format!("{raw}\n")).map_err(|err| err.to_string())
@@ -551,6 +789,8 @@ fn read_session_meta(path: &Path) -> Option<AiSessionSummary> {
         title: meta.title,
         created_at: meta.created_at,
         updated_at: meta.updated_at,
+        auto_task_id: meta.auto_task_id,
+        auto_task_name: meta.auto_task_name,
     })
 }
 
@@ -624,6 +864,111 @@ pub fn save_ai_settings(workspace_folder: String, settings: AiSettings) -> Resul
     })
 }
 
+#[tauri::command]
+pub fn load_pi_provider_auth(provider: String, auth_key: String) -> Result<PiProviderAuth, String> {
+    let auth_key = safe_pi_auth_key(&provider, &auth_key)?;
+    let path = pi_auth_path()?;
+    let auth = read_pi_auth_file(&path)?;
+    let key = auth
+        .get(&auth_key)
+        .and_then(Value::as_object)
+        .and_then(|entry| entry.get("key"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+
+    Ok(PiProviderAuth {
+        provider,
+        auth_key,
+        key,
+    })
+}
+
+#[tauri::command]
+pub fn save_pi_provider_auth(
+    provider: String,
+    auth_key: String,
+    key: String,
+) -> Result<PiProviderAuth, String> {
+    let auth_key = safe_pi_auth_key(&provider, &auth_key)?;
+    let path = pi_auth_path()?;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|err| format!("Cannot create Pi auth directory: {err}"))?;
+    }
+
+    let mut auth = read_pi_auth_file(&path)?;
+    let trimmed_key = key.trim().to_string();
+    if trimmed_key.is_empty() {
+        auth.remove(&auth_key);
+    } else {
+        auth.insert(
+            auth_key.clone(),
+            json!({
+                "type": "api_key",
+                "key": trimmed_key,
+            }),
+        );
+    }
+
+    let raw = serde_json::to_string_pretty(&auth).map_err(|err| err.to_string())?;
+    fs::write(&path, format!("{raw}\n"))
+        .map_err(|err| format!("Cannot write Pi auth file: {err}"))?;
+
+    Ok(PiProviderAuth {
+        provider,
+        auth_key,
+        key: trimmed_key,
+    })
+}
+
+#[tauri::command]
+pub fn list_auto_tasks(workspace_folder: String) -> Result<Vec<AutoTask>, String> {
+    let paths = storage_paths(&workspace_folder)?;
+    ensure_storage(&paths)?;
+    load_auto_tasks(&paths)
+}
+
+#[tauri::command]
+pub fn save_auto_task(workspace_folder: String, mut task: AutoTask) -> Result<AutoTask, String> {
+    let paths = storage_paths(&workspace_folder)?;
+    ensure_storage(&paths)?;
+
+    task.id = task.id.trim().to_string();
+    if task.id.is_empty() {
+        return Err("Auto task id is required".to_string());
+    }
+
+    let now = now_ms();
+    if task.created_at == 0 {
+        task.created_at = now;
+    }
+    task.updated_at = now;
+
+    let mut tasks = load_auto_tasks(&paths)?;
+    if let Some(existing) = tasks.iter_mut().find(|item| item.id == task.id) {
+        *existing = task.clone();
+    } else {
+        tasks.push(task.clone());
+    }
+
+    tasks.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    save_auto_tasks_file(&paths, &tasks)?;
+    Ok(task)
+}
+
+#[tauri::command]
+pub fn delete_auto_task(workspace_folder: String, task_id: String) -> Result<(), String> {
+    let paths = storage_paths(&workspace_folder)?;
+    ensure_storage(&paths)?;
+    let mut tasks = load_auto_tasks(&paths)?;
+    let before = tasks.len();
+    tasks.retain(|task| task.id != task_id);
+    if tasks.len() != before {
+        save_auto_tasks_file(&paths, &tasks)?;
+    }
+    Ok(())
+}
+
 fn home_dir() -> Option<PathBuf> {
     std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
@@ -631,11 +976,19 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+fn codex_home_dir() -> Option<PathBuf> {
+    std::env::var("CODEX_HOME")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| home_dir().map(|home| home.join(".codex")))
+}
+
 fn provider_skill_dir_name(provider_id: &str) -> &str {
-    if provider_id == "codex" {
-        ".codex"
-    } else {
-        ".claude"
+    match provider_id {
+        "pi" => ".pi",
+        "codex" => ".codex",
+        _ => ".claude",
     }
 }
 
@@ -692,15 +1045,24 @@ fn scan_skills_dir(dir: &Path, scope: &str) -> Vec<SkillInfo> {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let skill_dir = entry.path();
-            if !skill_dir.is_dir() {
+            let skill_md = if skill_dir.is_dir() {
+                skill_dir.join("SKILL.md")
+            } else if skill_dir
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+            {
+                skill_dir.clone()
+            } else {
                 continue;
-            }
-            let skill_md = skill_dir.join("SKILL.md");
+            };
             if skill_md.exists() {
                 if let Some(mut info) = parse_skill_md(&skill_md) {
                     info.scope = scope.to_string();
                     skills.push(info);
                 }
+            } else if skill_dir.is_dir() {
+                skills.extend(scan_skills_dir(&skill_dir, scope));
             }
         }
     }
@@ -710,20 +1072,50 @@ fn scan_skills_dir(dir: &Path, scope: &str) -> Vec<SkillInfo> {
 }
 
 #[tauri::command]
-pub fn list_skills(workspace_folder: String, provider_id: Option<String>) -> Result<Vec<SkillInfo>, String> {
+pub fn list_skills(
+    workspace_folder: String,
+    provider_id: Option<String>,
+) -> Result<Vec<SkillInfo>, String> {
     let mut skills = Vec::new();
-    let provider_dir = provider_skill_dir_name(provider_id.as_deref().unwrap_or("claude"));
+    let provider_id = provider_id.unwrap_or_else(default_provider_id);
+    let provider_dir = provider_skill_dir_name(&provider_id);
 
-    if let Some(home) = home_dir() {
-        let global_dir = home.join(provider_dir).join("skills");
-        skills.extend(scan_skills_dir(&global_dir, "global"));
-    }
-
-    if !workspace_folder.trim().is_empty() {
+    if provider_id != "codex" && !workspace_folder.trim().is_empty() {
         let workspace_dir = PathBuf::from(&workspace_folder);
         if workspace_dir.exists() {
             let workspace_skills = workspace_dir.join(provider_dir).join("skills");
             skills.extend(scan_skills_dir(&workspace_skills, "workspace"));
+            if provider_id == "pi" {
+                skills.extend(scan_skills_dir(
+                    &workspace_dir.join(".agents").join("skills"),
+                    "workspace",
+                ));
+            }
+        }
+    }
+
+    if let Some(home) = home_dir() {
+        if provider_id != "codex" {
+            let builtin_dir = home.join(".wimipet").join("skills");
+            skills.extend(scan_skills_dir(&builtin_dir, "builtin"));
+        }
+
+        if provider_id == "pi" {
+            skills.extend(scan_skills_dir(
+                &home.join(".pi").join("agent").join("skills"),
+                "global",
+            ));
+            skills.extend(scan_skills_dir(
+                &home.join(".agents").join("skills"),
+                "global",
+            ));
+        } else if provider_id == "codex" {
+            if let Some(codex_home) = codex_home_dir() {
+                skills.extend(scan_skills_dir(&codex_home.join("skills"), "global"));
+            }
+        } else {
+            let global_dir = home.join(provider_dir).join("skills");
+            skills.extend(scan_skills_dir(&global_dir, "global"));
         }
     }
 
@@ -788,6 +1180,9 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
         &provider_id,
         request.provider_state.clone(),
         &session_prompt,
+        &request.title,
+        &request.auto_task_id,
+        &request.auto_task_name,
     )?;
 
     let helper = match helper_path(&app) {
@@ -797,6 +1192,50 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
             return Err(err);
         }
     };
+
+    let provider_dir = provider_skill_dir_name(&provider_id);
+    let mut all_skill_names: Vec<String> = Vec::new();
+    if provider_id != "codex" {
+        for info in scan_skills_dir(
+            &paths.workspace_dir.join(&provider_dir).join("skills"),
+            "workspace",
+        ) {
+            all_skill_names.push(info.name);
+        }
+    }
+    if provider_id == "pi" {
+        for info in scan_skills_dir(
+            &paths.workspace_dir.join(".agents").join("skills"),
+            "workspace",
+        ) {
+            all_skill_names.push(info.name);
+        }
+    }
+    if let Some(home) = home_dir() {
+        if provider_id != "codex" {
+            for info in scan_skills_dir(&home.join(".wimipet").join("skills"), "builtin") {
+                all_skill_names.push(info.name);
+            }
+        }
+        if provider_id == "pi" {
+            for info in scan_skills_dir(&home.join(".pi").join("agent").join("skills"), "global") {
+                all_skill_names.push(info.name);
+            }
+            for info in scan_skills_dir(&home.join(".agents").join("skills"), "global") {
+                all_skill_names.push(info.name);
+            }
+        } else if provider_id == "codex" {
+            if let Some(codex_home) = codex_home_dir() {
+                for info in scan_skills_dir(&codex_home.join("skills"), "global") {
+                    all_skill_names.push(info.name);
+                }
+            }
+        } else {
+            for info in scan_skills_dir(&home.join(&provider_dir).join("skills"), "global") {
+                all_skill_names.push(info.name);
+            }
+        }
+    }
     let current_dir = paths.workspace_dir.clone();
     let claude_dir = paths.claude_dir.clone();
     let payload = json!({
@@ -806,16 +1245,32 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
         "prompt": request.prompt,
         "attachments": request.attachments,
         "providerState": request.provider_state,
+        "allSkillNames": all_skill_names,
         "settings": {
             "providerId": settings.provider_id,
             "petPersona": settings.pet_persona,
+            "pi": {
+                "pathToPiExecutable": settings.pi.path_to_pi_executable,
+                "provider": settings.pi.provider,
+                "model": settings.pi.model,
+                "thinkingLevel": settings.pi.thinking_level,
+                "sessionDir": settings.pi.session_dir,
+                "useNoSession": settings.pi.use_no_session,
+                "autoCompactionEnabled": settings.pi.auto_compaction_enabled,
+                "autoRetryEnabled": settings.pi.auto_retry_enabled,
+                "steeringMode": settings.pi.steering_mode,
+                "followUpMode": settings.pi.follow_up_mode,
+                "customEnvText": settings.pi.custom_env_text,
+                "disabledSkills": settings.pi.disabled_skills,
+                "extraSkillPaths": settings.pi.extra_skill_paths,
+            },
             "claude": {
                 "pathToClaudeCodeExecutable": settings.claude.path_to_claude_code_executable,
                 "permissionMode": settings.claude.permission_mode,
                 "thinkingIntensity": settings.claude.thinking_intensity,
                 "useUserSettings": settings.claude.use_user_settings,
                 "customEnvText": settings.claude.custom_env_text,
-                "enabledSkills": settings.claude.enabled_skills,
+                "disabledSkills": settings.claude.disabled_skills,
             },
             "codex": {
                 "pathToCodexExecutable": settings.codex.path_to_codex_executable,
@@ -823,6 +1278,7 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
                 "approvalPolicy": settings.codex.approval_policy,
                 "reasoningEffort": settings.codex.reasoning_effort,
                 "customEnvText": settings.codex.custom_env_text,
+                "disabledSkills": settings.codex.disabled_skills,
             },
         },
         "paths": public_paths(&paths),
@@ -926,6 +1382,9 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
                         &provider_id_for_meta,
                         provider_state.clone(),
                         "AI conversation",
+                        "",
+                        "",
+                        "",
                     );
                 }
             }
@@ -991,6 +1450,20 @@ pub fn cancel_ai_chat_message(app: AppHandle, request_id: String) -> Result<(), 
         .copied();
 
     mark_ai_request_cancelled(&request_id);
+    let writer = tool_input_writers()
+        .lock()
+        .ok()
+        .and_then(|writers| writers.get(&request_id).cloned());
+    if let Some(writer) = writer {
+        if let Ok(mut writer) = writer.lock() {
+            let _ = writeln!(
+                writer,
+                "{}",
+                json!({ "type": "abort", "requestId": request_id })
+            );
+            let _ = writer.flush();
+        }
+    }
     remove_tool_input_writer(&request_id);
     if let Some(pid) = pid {
         let _ = terminate_process_tree(pid);

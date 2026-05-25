@@ -1,8 +1,32 @@
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'dontAsk' | 'bypassPermissions';
 export type ThinkingIntensity = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-export type ProviderId = 'claude' | 'codex';
+export type ProviderId = 'pi' | 'claude' | 'codex';
 export type CodexApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never';
 export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type PiQueueMode = 'all' | 'one-at-a-time';
+
+export interface PiSettings {
+  pathToPiExecutable: string;
+  provider: string;
+  model: string;
+  thinkingLevel: PiThinkingLevel;
+  sessionDir: string;
+  useNoSession: boolean;
+  autoCompactionEnabled: boolean;
+  autoRetryEnabled: boolean;
+  steeringMode: PiQueueMode;
+  followUpMode: PiQueueMode;
+  customEnvText: string;
+  disabledSkills: string[];
+  extraSkillPaths: string;
+}
+
+export interface PiProviderAuth {
+  provider: string;
+  authKey: string;
+  key: string;
+}
 
 export interface ClaudeSettings {
   pathToClaudeCodeExecutable: string;
@@ -10,7 +34,7 @@ export interface ClaudeSettings {
   thinkingIntensity: ThinkingIntensity;
   useUserSettings: boolean;
   customEnvText: string;
-  enabledSkills: string[];
+  disabledSkills: string[];
 }
 
 export interface CodexSettings {
@@ -19,12 +43,7 @@ export interface CodexSettings {
   approvalPolicy: CodexApprovalPolicy;
   reasoningEffort: CodexReasoningEffort;
   customEnvText: string;
-}
-
-export interface PetOverrides {
-  displayName?: string | null;
-  description?: string | null;
-  spritesheetPath?: string | null;
+  disabledSkills: string[];
 }
 
 export interface AiSettings {
@@ -34,9 +53,10 @@ export interface AiSettings {
   petScale: number;
   petResizeEnabled: boolean;
   petPersona: string;
+  displayName: string;
+  pi: PiSettings;
   claude: ClaudeSettings;
   codex: CodexSettings;
-  petOverrides: PetOverrides;
 }
 
 export interface AiPaths {
@@ -53,6 +73,8 @@ export interface AiState {
 }
 
 export interface ProviderState {
+  piSessionId?: string;
+  piSessionFile?: string;
   claudeSessionId?: string;
   codexThreadId?: string;
 }
@@ -64,6 +86,8 @@ export interface AiSessionSummary {
   title: string;
   createdAt: number;
   updatedAt: number;
+  autoTaskId?: string;
+  autoTaskName?: string;
 }
 
 export interface ChatMessage {
@@ -147,7 +171,7 @@ export interface SavedDroppedChatFile {
 export interface SkillInfo {
   name: string;
   description: string;
-  scope: 'global' | 'workspace';
+  scope: 'workspace' | 'builtin' | 'global';
   path: string;
 }
 
@@ -156,6 +180,9 @@ export interface AiChatRequest {
   conversationId: string;
   workspaceFolder: string;
   providerId: ProviderId;
+  title?: string;
+  autoTaskId?: string;
+  autoTaskName?: string;
   prompt: string;
   attachments?: ChatAttachment[];
   providerState: ProviderState;
