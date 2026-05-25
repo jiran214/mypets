@@ -1,4 +1,4 @@
-# Mypets
+# Wimi Pet
 
 [中文](./README.md)
 

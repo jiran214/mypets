@@ -1,24 +1,47 @@
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'dontAsk' | 'bypassPermissions';
+export type ThinkingIntensity = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type ProviderId = 'claude' | 'codex';
+export type CodexApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never';
+export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
 export interface ClaudeSettings {
   pathToClaudeCodeExecutable: string;
-  permissionMode: string;
+  permissionMode: PermissionMode;
+  thinkingIntensity: ThinkingIntensity;
   useUserSettings: boolean;
   customEnvText: string;
   enabledSkills: string[];
 }
 
+export interface CodexSettings {
+  pathToCodexExecutable: string;
+  model: string;
+  approvalPolicy: CodexApprovalPolicy;
+  reasoningEffort: CodexReasoningEffort;
+  customEnvText: string;
+}
+
+export interface PetOverrides {
+  displayName?: string | null;
+  description?: string | null;
+  spritesheetPath?: string | null;
+}
+
 export interface AiSettings {
-  providerId: 'claude';
+  providerId: ProviderId;
   petAlwaysOnTop: boolean;
   petGravityEnabled: boolean;
   petScale: number;
   petResizeEnabled: boolean;
   petPersona: string;
   claude: ClaudeSettings;
+  codex: CodexSettings;
+  petOverrides: PetOverrides;
 }
 
 export interface AiPaths {
   workspaceDir: string;
-  mypetsAiDir: string;
+  wimipetDir: string;
   claudeDir: string;
   sessionsDir: string;
   logFile: string;
@@ -29,14 +52,15 @@ export interface AiState {
   paths: AiPaths;
 }
 
-export interface ClaudeProviderState {
+export interface ProviderState {
   claudeSessionId?: string;
+  codexThreadId?: string;
 }
 
 export interface AiSessionSummary {
   id: string;
-  providerId: 'claude';
-  providerState: ClaudeProviderState;
+  providerId: ProviderId;
+  providerState: ProviderState;
   title: string;
   createdAt: number;
   updatedAt: number;
@@ -61,8 +85,8 @@ export interface ChatMessagePart {
 
 export interface Conversation {
   id: string;
-  providerId: 'claude';
-  providerState: ClaudeProviderState;
+  providerId: ProviderId;
+  providerState: ProviderState;
   messages: ChatMessage[];
 }
 
@@ -102,7 +126,7 @@ export interface ToolQuestionRequest {
 }
 
 export interface ToolQuestionAnswerPayload {
-  answers: Record<string, string>;
+  answers: Record<string, string[]>;
   annotations?: Record<string, { preview?: string; notes?: string }>;
 }
 
@@ -131,9 +155,10 @@ export interface AiChatRequest {
   requestId: string;
   conversationId: string;
   workspaceFolder: string;
+  providerId: ProviderId;
   prompt: string;
   attachments?: ChatAttachment[];
-  providerState: ClaudeProviderState;
+  providerState: ProviderState;
 }
 
 export interface AiToolQuestionAnswerRequest {
@@ -144,10 +169,10 @@ export interface AiToolQuestionAnswerRequest {
 
 export type AiChatEvent =
   | { type: 'status'; requestId: string; status: string }
-  | { type: 'session'; requestId: string; providerState: ClaudeProviderState }
+  | { type: 'session'; requestId: string; providerState: ProviderState }
   | { type: 'part'; requestId: string; part: Omit<ChatMessagePart, 'id'> }
   | { type: 'question'; requestId: string; question: ToolQuestionRequest }
   | { type: 'delta'; requestId: string; text: string }
-  | { type: 'done'; requestId: string; providerState?: ClaudeProviderState }
+  | { type: 'done'; requestId: string; providerState?: ProviderState }
   | { type: 'cancelled'; requestId: string }
   | { type: 'error'; requestId: string; error: string };

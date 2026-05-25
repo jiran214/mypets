@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-mypets 是一个 Tauri 2 桌面宠物应用——浮动、透明、置顶的精灵动画角色，支持多桌宠同时显示，内置 Claude AI 聊天功能。前端用 TypeScript + Vite + React + Canvas 2D 渲染，后端用 Rust 处理文件系统和 AI 调度。
+Wimi Pet 是一个 Tauri 2 桌面宠物应用——浮动、透明、置顶的精灵动画角色，支持多桌宠同时显示，内置 Claude AI 聊天功能。前端用 TypeScript + Vite + React + Canvas 2D 渲染，后端用 Rust 处理文件系统和 AI 调度。
 
 ## 常用命令
 
@@ -40,7 +40,7 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 **AI 命令（src-tauri/src/ai.rs）：**
 - `load_ai_state` — 加载工作空间的 AI 设置和路径
 - `list_ai_sessions` — 列出对话会话元数据文件
-- `save_ai_settings` — 保存 AI 设置到 `.mypets-ai/settings.json`
+- `save_ai_settings` — 保存 AI 设置到 `.wimipet/settings.json`
 - `list_skills` — 列出可用的 skill 文件（全局 + 工作空间级别）
 - `save_dropped_chat_file` — 保存拖入聊天的文件到工作空间
 - `send_ai_chat_message` — 启动 Claude 子进程，通过 Tauri event 系统流式返回结果
@@ -72,7 +72,7 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 - `question` 事件用于 Claude 请求用户输入（权限确认或多选问答），前端通过 `answerAiToolQuestion()` 回应
 - `cancelled` 事件在用户中断请求后触发
 
-AI 设置存储在每个工作空间的 `.mypets-ai/settings.json`，会话元数据在 `.mypets-ai/sessions/`，日志在 `.mypets-ai/logs/ai.log`。
+AI 设置存储在每个工作空间的 `.wimipet/settings.json`，会话元数据在 `.wimipet/sessions/`，日志在 `.wimipet/logs/ai.log`。
 
 ### 前端渲染
 
@@ -88,7 +88,7 @@ AI 设置存储在每个工作空间的 `.mypets-ai/settings.json`，会话元�
 - 启动时显示主窗口（React 管理界面），侧边栏列出已导入的桌宠，右侧为聊天面板或设置面板
 - 每个启用的桌宠创建独立的宠物窗口（透明/置顶/跳过任务栏），通过 `pet-windows.ts` 管理
 - 宠物窗口通过 URL 参数 `?view=pet&folder=...` 区分，每个窗口有独立的 Canvas 精灵和聊天气泡
-- 桌宠工作空间通过 `localStorage` 持久化（key: `mypets-workspaces-v1`），支持多工作空间，每个可独立启用/禁用
+- 桌宠工作空间通过 `localStorage` 持久化（key: `wimipet-workspaces-v1`），支持多工作空间，每个可独立启用/禁用
 - 宠物窗口标签格式：`pet-{folderHash}`，通过 FNV-1a 哈希文件夹路径生成
 
 ### 聊天 UI
@@ -137,7 +137,7 @@ AI 聊天专用组件在 `src/components/ai-elements/`：流式对话、消息�
 
 Tauri v2 capabilities 定义在 `src-tauri/capabilities/default.json`，应用于 `main` 和 `pet-*` 窗口，仅授予必要的窗口操作、事件监听和文件对话框权限。所有文件系统访问在 Rust 侧完成，前端只接收元数据和 base64 图片。
 
-AI 设置和会话存储在每个工作空间的 `.mypets-ai/` 目录下，Claude 配置在 `.claude/` 目录下。
+AI 设置和会话存储在每个工作空间的 `.wimipet/` 目录下，Claude 配置在 `.claude/` 目录下。
 
 ## 约定
 
@@ -145,3 +145,4 @@ AI 设置和会话存储在每个工作空间的 `.mypets-ai/` 目录下，Claud
 - UI 文字：中文（zh-CN）
 - 提交信息：中文，简短描述
 - 只做关键测试
+- /docs/feature 为已完成功能，请勿主动读取

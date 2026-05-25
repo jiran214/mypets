@@ -1,19 +1,22 @@
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { createRoot, type Root } from 'react-dom/client';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import {
   ArrowLeft,
   Bot,
+  ChevronDown,
   FolderOpen,
   FolderPlus,
   ImageIcon,
+  Minus,
   PanelLeftClose,
   PanelLeftOpen,
   Puzzle,
   Settings,
   Trash2,
   UserRound,
+  X,
 } from 'lucide-react';
 import {
   AlertDialog,
@@ -40,13 +43,12 @@ import {
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -57,14 +59,22 @@ import { ANIMATIONS, CELL_H, CELL_W } from './animation-data';
 import { listSkills, saveAiSettings } from './ai-api';
 import type { ChatRuntime } from './chat-runtime';
 import { ChatPanel } from './chat-ui';
-import type { AiSettings, SkillInfo } from './ai-types';
+import type {
+  AiSettings,
+  CodexApprovalPolicy,
+  CodexReasoningEffort,
+  PermissionMode,
+  ProviderId,
+  SkillInfo,
+  ThinkingIntensity,
+} from './ai-types';
 import {
   deletePetWorkspace,
   loadPet,
   loadSpritesheet,
   openWorkspaceInFileManager,
   pickPetFolder,
-  updatePetDisplayName,
+  updatePetOverrides,
 } from './pet-loader';
 import {
   applyPetWindowSettings,
@@ -87,6 +97,39 @@ const PREVIEW_DISPLAY_H = 208;
 const AVATAR_SIZE = 40;
 const DEFAULT_PET_PERSONA = '你是这个桌宠角色在用户电脑桌面上的人格化伙伴。你长期陪伴用户工作、学习和休息，语气自然、温和、有一点俏皮，但不喧宾夺主。你会把自己当作屏幕边缘的小生命：能观察用户给出的文字、任务和上下文，却不会假装看到屏幕上没有提供的信息。回答要优先简洁、可执行，用户焦虑时先帮他把问题拆小，用户专注时少打扰。你可以偶尔使用符合桌宠气质的短句和轻微拟声，但不要大量卖萌、不要刷表情。遇到技术问题时像可靠的同伴一样给出明确步骤；遇到情绪问题时先共情，再提出具体下一步。你不替用户做危险决定，不编造事实，不夸大能力。默认使用中文，除非用户要求其他语言。';
 const spritesheetCache = new Map<string, Promise<HTMLImageElement>>();
+const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string; description: string }[] = [
+  { value: 'default', label: 'default', description: '标准模式，执行有风险操作前会询问确认' },
+  { value: 'acceptEdits', label: 'acceptEdits', description: '自动接受文件编辑，敏感操作仍可能需要权限' },
+  { value: 'plan', label: 'plan', description: '计划模式，批准后再执行' },
+  { value: 'auto', label: 'auto', description: '自动判断是否批准工具调用' },
+  { value: 'dontAsk', label: 'dontAsk', description: '未预先允许的操作直接拒绝' },
+  { value: 'bypassPermissions', label: 'bypassPermissions', description: '跳过权限检查，风险最高' },
+];
+const THINKING_INTENSITY_OPTIONS: { value: ThinkingIntensity; label: string }[] = [
+  { value: 'low', label: 'low' },
+  { value: 'medium', label: 'medium' },
+  { value: 'high', label: 'high' },
+  { value: 'xhigh', label: 'xhigh' },
+  { value: 'max', label: 'max' },
+];
+const PROVIDER_OPTIONS: { value: ProviderId; label: string; description: string }[] = [
+  { value: 'claude', label: 'Claude', description: '使用 Claude Agent SDK 与本地 Claude Code。' },
+  { value: 'codex', label: 'Codex', description: '使用 OpenAI Codex app-server 协议。' },
+];
+const CODEX_APPROVAL_OPTIONS: { value: CodexApprovalPolicy; label: string; description: string }[] = [
+  { value: 'untrusted', label: 'untrusted', description: '高风险操作默认先请求批准。' },
+  { value: 'on-failure', label: 'on-failure', description: '先尝试受限执行，失败后再请求放宽。' },
+  { value: 'on-request', label: 'on-request', description: '由 Codex 自主决定何时发起批准请求。' },
+  { value: 'never', label: 'never', description: '不请求额外批准，受限于当前策略。' },
+];
+const CODEX_REASONING_OPTIONS: { value: CodexReasoningEffort; label: string }[] = [
+  { value: 'none', label: 'none' },
+  { value: 'minimal', label: 'minimal' },
+  { value: 'low', label: 'low' },
+  { value: 'medium', label: 'medium' },
+  { value: 'high', label: 'high' },
+  { value: 'xhigh', label: 'xhigh' },
+];
 
 type SettingsTab = 'general' | 'skin' | 'agent' | 'skills';
 type MainView = 'chat' | 'settings';
@@ -209,7 +252,7 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
 
     const timer = setTimeout(() => {
       renameTimersRef.current.delete(folder);
-      void updatePetDisplayName(folder, trimmed)
+      void updatePetOverrides(folder, { displayName: trimmed })
         .then((meta) => {
           setWorkspaces((current) => {
             const next = current.map((workspace) => (
@@ -462,14 +505,16 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
   }, [selectWorkspace]);
 
   return (
-    <div className="flex size-full min-h-0 bg-[radial-gradient(circle_at_top_left,var(--accent),transparent_28rem),linear-gradient(180deg,var(--background),var(--muted))] p-3 text-foreground">
-      <aside
-        className={cn(
-          'flex min-h-0 shrink-0 flex-col gap-3 rounded-lg border bg-background/95 shadow-sm transition-[width] duration-200',
-          sidebarCollapsed ? 'w-[72px]' : 'w-[292px]',
-          sidebarCollapsed ? 'items-center p-3' : 'p-3',
-        )}
-      >
+    <div className="flex size-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,var(--accent),transparent_28rem),linear-gradient(180deg,var(--background),var(--muted))] text-foreground">
+      <ManagerTitleBar />
+      <div className="flex min-h-0 flex-1 px-3 pb-3 pt-1">
+        <aside
+          className={cn(
+            'manager-panel flex min-h-0 shrink-0 flex-col gap-3 transition-[width] duration-200',
+            sidebarCollapsed ? 'w-[72px]' : 'w-[292px]',
+            sidebarCollapsed ? 'items-center p-3' : 'p-3',
+          )}
+        >
         <div className={cn('flex h-9 items-center gap-2', sidebarCollapsed ? 'justify-center' : 'justify-between')}>
           {!sidebarCollapsed && (
             <div className="min-w-0">
@@ -535,37 +580,90 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
             </div>
           )}
         </ScrollArea>
-      </aside>
+        </aside>
 
-      <section className="ml-3 flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border bg-background shadow-sm">
-        {mainView === 'chat' ? (
-          <div className="min-h-0 flex-1">
-            <ChatPanel runtime={runtime} variant="embedded" petName={readyWorkspace?.meta.displayName} />
-          </div>
-        ) : (
-          <SettingsSurface
-            selectedWorkspace={selectedWorkspace}
-            readyWorkspace={readyWorkspace}
-            settingsTab={settingsTab}
-            settingsDraft={settingsDraft}
-            settingsStatus={settingsStatus}
-            onBack={() => setMainView('chat')}
-            onSettingsTabChange={setSettingsTab}
-            onSettingsChange={changeSettingsDraft}
-            onDeleteWorkspace={() => void deleteSelectedWorkspace()}
-            onImportWorkspace={() => void importWorkspace()}
-            onRenameWorkspace={renameWorkspace}
-            onOpenWorkspaceFolder={() => {
-              if (!readyWorkspace) return;
-              void openWorkspaceInFileManager(readyWorkspace.folder).catch((error) => {
-                setSettingsStatus(error instanceof Error ? error.message : String(error));
-              });
-            }}
-          />
-        )}
-      </section>
+        <section className="manager-panel ml-3 flex min-w-0 flex-1 flex-col overflow-hidden">
+          {mainView === 'chat' ? (
+            <div className="min-h-0 flex-1">
+              <ChatPanel runtime={runtime} variant="embedded" petName={readyWorkspace?.meta.displayName} />
+            </div>
+          ) : (
+            <SettingsSurface
+              selectedWorkspace={selectedWorkspace}
+              readyWorkspace={readyWorkspace}
+              settingsTab={settingsTab}
+              settingsDraft={settingsDraft}
+              settingsStatus={settingsStatus}
+              onBack={() => setMainView('chat')}
+              onSettingsTabChange={setSettingsTab}
+              onSettingsChange={changeSettingsDraft}
+              onDeleteWorkspace={() => void deleteSelectedWorkspace()}
+              onImportWorkspace={() => void importWorkspace()}
+              onRenameWorkspace={renameWorkspace}
+              onOpenWorkspaceFolder={() => {
+                if (!readyWorkspace) return;
+                void openWorkspaceInFileManager(readyWorkspace.folder).catch((error) => {
+                  setSettingsStatus(error instanceof Error ? error.message : String(error));
+                });
+              }}
+            />
+          )}
+        </section>
+      </div>
     </div>
   );
+}
+
+function ManagerTitleBar(): ReactNode {
+  return (
+    <div
+      className="manager-titlebar"
+      data-tauri-drag-region
+      onMouseDown={startManagerWindowDrag}
+    >
+      <div className="manager-titlebar__identity" data-tauri-drag-region>
+        <span className="manager-app-mark" aria-hidden="true" />
+        <span data-tauri-drag-region>Wimi Pet</span>
+      </div>
+      <div className="manager-titlebar__drag" data-tauri-drag-region />
+      <div className="manager-window-controls">
+        <button
+          className="manager-window-button"
+          type="button"
+          aria-label="最小化"
+          title="最小化"
+          onClick={minimizeManagerWindow}
+        >
+          <Minus aria-hidden="true" />
+        </button>
+        <button
+          className="manager-window-button manager-window-button--close"
+          type="button"
+          aria-label="关闭"
+          title="关闭"
+          onClick={closeManagerWindow}
+        >
+          <X aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function startManagerWindowDrag(event: ReactMouseEvent<HTMLElement>): void {
+  if (event.button !== 0 || !hasTauriRuntime()) return;
+  if (event.target instanceof Element && event.target.closest('button')) return;
+  void getCurrentWindow().startDragging().catch(() => {});
+}
+
+function minimizeManagerWindow(): void {
+  if (!hasTauriRuntime()) return;
+  void getCurrentWindow().minimize().catch(() => {});
+}
+
+function closeManagerWindow(): void {
+  if (!hasTauriRuntime()) return;
+  void getCurrentWindow().close().catch(() => {});
 }
 
 interface WorkspaceListItemProps {
@@ -799,7 +897,7 @@ function GeneralSettings({
                 onRenameWorkspace(readyWorkspace.folder, event.currentTarget.value);
               }}
             />
-            <FieldDescription>保存到当前桌宠资源的 pet.json，并同步已打开窗口标题。</FieldDescription>
+            <FieldDescription>保存到当前工作空间的 settings.json，并同步已打开窗口标题。</FieldDescription>
           </Field>
 
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
@@ -843,7 +941,7 @@ function GeneralSettings({
               placeholder={DEFAULT_PET_PERSONA}
               onChange={(event) => onSettingsChange({ ...settingsDraft, petPersona: event.currentTarget.value })}
             />
-            <FieldDescription>自动保存，作为当前桌宠的对话人格注入 Claude。</FieldDescription>
+            <FieldDescription>自动保存，作为当前桌宠的对话人格注入当前 Agent。</FieldDescription>
           </Field>
         </FieldGroup>
       </FieldSet>
@@ -971,12 +1069,101 @@ function AgentSettings({
   onSettingsChange,
 }: AgentSettingsProps): ReactNode {
   const disabled = !readyWorkspace;
+  const selectedProvider = PROVIDER_OPTIONS.find((option) => option.value === settingsDraft.providerId);
+  const selectedPermissionMode = PERMISSION_MODE_OPTIONS.find((option) => option.value === settingsDraft.claude.permissionMode);
+  const selectedThinkingIntensity = THINKING_INTENSITY_OPTIONS.find((option) => option.value === settingsDraft.claude.thinkingIntensity);
+  const selectedCodexApprovalPolicy = CODEX_APPROVAL_OPTIONS.find((option) => option.value === settingsDraft.codex.approvalPolicy);
+  const selectedCodexReasoningEffort = CODEX_REASONING_OPTIONS.find((option) => option.value === settingsDraft.codex.reasoningEffort);
 
   return (
     <div className="flex flex-col gap-4">
       <FieldSet disabled={disabled}>
-        <FieldLegend>Claude Agent</FieldLegend>
+        <FieldLegend>{settingsDraft.providerId === 'codex' ? 'Codex Agent' : 'Claude Agent'}</FieldLegend>
         <FieldGroup className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Field className="lg:col-span-2" data-disabled={disabled}>
+            <FieldLabel>Provider</FieldLabel>
+            <SettingDropdown
+              disabled={disabled}
+              value={selectedProvider?.label ?? settingsDraft.providerId}
+              menuClassName="max-w-[32rem]"
+            >
+              <DropdownMenuRadioGroup
+                value={settingsDraft.providerId}
+                onValueChange={(value) => onSettingsChange({
+                  ...settingsDraft,
+                  providerId: value as ProviderId,
+                })}
+              >
+                {PROVIDER_OPTIONS.map((option) => (
+                  <DropdownMenuRadioItem
+                    key={option.value}
+                    value={option.value}
+                    className="items-start gap-2 py-2 pr-8 whitespace-normal break-words leading-5"
+                  >
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="font-medium">{option.label}</span>
+                      <span className="text-xs text-muted-foreground">{option.description}</span>
+                    </span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </SettingDropdown>
+          </Field>
+
+          {settingsDraft.providerId === 'claude' ? (
+            <>
+          <Field data-disabled={disabled}>
+            <FieldLabel>权限模式</FieldLabel>
+            <SettingDropdown
+              disabled={disabled}
+              value={selectedPermissionMode?.label ?? settingsDraft.claude.permissionMode}
+              menuClassName="max-w-[32rem]"
+            >
+              <DropdownMenuRadioGroup
+                value={settingsDraft.claude.permissionMode}
+                onValueChange={(value) => onSettingsChange({
+                  ...settingsDraft,
+                  claude: { ...settingsDraft.claude, permissionMode: value as PermissionMode },
+                })}
+              >
+                {PERMISSION_MODE_OPTIONS.map((option) => (
+                  <DropdownMenuRadioItem
+                    key={option.value}
+                    value={option.value}
+                    className="items-start gap-2 py-2 pr-8 whitespace-normal break-words leading-5"
+                  >
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="font-medium">{option.label}</span>
+                      <span className="text-xs text-muted-foreground">{option.description}</span>
+                    </span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </SettingDropdown>
+          </Field>
+
+          <Field data-disabled={disabled}>
+            <FieldLabel>思考强度</FieldLabel>
+            <SettingDropdown
+              disabled={disabled}
+              value={selectedThinkingIntensity?.label ?? settingsDraft.claude.thinkingIntensity}
+            >
+              <DropdownMenuRadioGroup
+                value={settingsDraft.claude.thinkingIntensity}
+                onValueChange={(value) => onSettingsChange({
+                  ...settingsDraft,
+                  claude: { ...settingsDraft.claude, thinkingIntensity: value as ThinkingIntensity },
+                })}
+              >
+                {THINKING_INTENSITY_OPTIONS.map((option) => (
+                  <DropdownMenuRadioItem key={option.value} value={option.value}>
+                    {option.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </SettingDropdown>
+          </Field>
+
           <Field className="lg:col-span-2" data-disabled={disabled}>
             <FieldLabel htmlFor="claude-executable">Claude CLI 路径</FieldLabel>
             <Input
@@ -994,32 +1181,7 @@ function AgentSettings({
             />
           </Field>
 
-          <Field data-disabled={disabled}>
-            <FieldLabel>权限模式</FieldLabel>
-            <Select
-              disabled={disabled}
-              value={settingsDraft.claude.permissionMode}
-              onValueChange={(value) => onSettingsChange({
-                ...settingsDraft,
-                claude: { ...settingsDraft.claude, permissionMode: value },
-              })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="权限模式" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="default">default</SelectItem>
-                  <SelectItem value="acceptEdits">acceptEdits</SelectItem>
-                  <SelectItem value="plan">plan</SelectItem>
-                  <SelectItem value="bypassPermissions">bypassPermissions</SelectItem>
-                  <SelectItem value="dontAsk">dontAsk</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <Field orientation="horizontal" data-disabled={disabled}>
+          <Field className="lg:col-span-2" orientation="horizontal" data-disabled={disabled}>
             <Switch
               id="claude-user-settings"
               disabled={disabled}
@@ -1049,10 +1211,148 @@ function AgentSettings({
               })}
             />
           </Field>
+            </>
+          ) : (
+            <>
+              <Field data-disabled={disabled}>
+                <FieldLabel>批准策略</FieldLabel>
+                <SettingDropdown
+                  disabled={disabled}
+                  value={selectedCodexApprovalPolicy?.label ?? settingsDraft.codex.approvalPolicy}
+                  menuClassName="max-w-[32rem]"
+                >
+                  <DropdownMenuRadioGroup
+                    value={settingsDraft.codex.approvalPolicy}
+                    onValueChange={(value) => onSettingsChange({
+                      ...settingsDraft,
+                      codex: { ...settingsDraft.codex, approvalPolicy: value as CodexApprovalPolicy },
+                    })}
+                  >
+                    {CODEX_APPROVAL_OPTIONS.map((option) => (
+                      <DropdownMenuRadioItem
+                        key={option.value}
+                        value={option.value}
+                        className="items-start gap-2 py-2 pr-8 whitespace-normal break-words leading-5"
+                      >
+                        <span className="flex min-w-0 flex-col gap-0.5">
+                          <span className="font-medium">{option.label}</span>
+                          <span className="text-xs text-muted-foreground">{option.description}</span>
+                        </span>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </SettingDropdown>
+              </Field>
+
+              <Field data-disabled={disabled}>
+                <FieldLabel>推理强度</FieldLabel>
+                <SettingDropdown
+                  disabled={disabled}
+                  value={selectedCodexReasoningEffort?.label ?? settingsDraft.codex.reasoningEffort}
+                >
+                  <DropdownMenuRadioGroup
+                    value={settingsDraft.codex.reasoningEffort}
+                    onValueChange={(value) => onSettingsChange({
+                      ...settingsDraft,
+                      codex: { ...settingsDraft.codex, reasoningEffort: value as CodexReasoningEffort },
+                    })}
+                  >
+                    {CODEX_REASONING_OPTIONS.map((option) => (
+                      <DropdownMenuRadioItem key={option.value} value={option.value}>
+                        {option.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </SettingDropdown>
+              </Field>
+
+              <Field className="lg:col-span-2" data-disabled={disabled}>
+                <FieldLabel htmlFor="codex-executable">Codex 可执行文件</FieldLabel>
+                <Input
+                  id="codex-executable"
+                  value={settingsDraft.codex.pathToCodexExecutable}
+                  disabled={disabled}
+                  placeholder="不填写会自动查找 codex"
+                  onChange={(event) => onSettingsChange({
+                    ...settingsDraft,
+                    codex: {
+                      ...settingsDraft.codex,
+                      pathToCodexExecutable: event.currentTarget.value,
+                    },
+                  })}
+                />
+              </Field>
+
+              <Field className="lg:col-span-2" data-disabled={disabled}>
+                <FieldLabel htmlFor="codex-model">模型</FieldLabel>
+                <Input
+                  id="codex-model"
+                  value={settingsDraft.codex.model}
+                  disabled={disabled}
+                  placeholder="留空则使用 Codex 默认模型"
+                  onChange={(event) => onSettingsChange({
+                    ...settingsDraft,
+                    codex: { ...settingsDraft.codex, model: event.currentTarget.value },
+                  })}
+                />
+                <FieldDescription>例如 `gpt-5.3-codex`。留空时沿用 Codex 当前默认配置。</FieldDescription>
+              </Field>
+
+              <Field className="lg:col-span-2" data-disabled={disabled}>
+                <FieldLabel htmlFor="codex-custom-env">自定义环境变量</FieldLabel>
+                <Textarea
+                  id="codex-custom-env"
+                  value={settingsDraft.codex.customEnvText}
+                  disabled={disabled}
+                  rows={7}
+                  placeholder="KEY=value"
+                  onChange={(event) => onSettingsChange({
+                    ...settingsDraft,
+                    codex: { ...settingsDraft.codex, customEnvText: event.currentTarget.value },
+                  })}
+                />
+                <FieldDescription>Codex 默认会读取用户登录态和 `~/.codex` 配置。</FieldDescription>
+              </Field>
+            </>
+          )}
         </FieldGroup>
       </FieldSet>
 
     </div>
+  );
+}
+
+function SettingDropdown({
+  value,
+  disabled,
+  children,
+  menuClassName,
+}: {
+  value: string;
+  disabled: boolean;
+  children: ReactNode;
+  menuClassName?: string;
+}): ReactNode {
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild disabled={disabled}>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-8 w-full justify-between px-2.5 font-normal"
+        >
+          <span className="min-w-0 truncate text-left">{value}</span>
+          <ChevronDown className="size-4 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        sideOffset={4}
+        className={cn('min-w-[var(--radix-dropdown-menu-trigger-width)]', menuClassName)}
+      >
+        {children}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -1078,7 +1378,7 @@ function SkillSettings({
     let disposed = false;
     setLoading(true);
 
-    void listSkills(readyWorkspace.folder)
+    void listSkills(readyWorkspace.folder, settingsDraft.providerId)
       .then((result) => {
         if (!disposed) setSkills(result);
       })
@@ -1092,17 +1392,25 @@ function SkillSettings({
     return () => {
       disposed = true;
     };
-  }, [readyWorkspace]);
+  }, [readyWorkspace, settingsDraft.providerId]);
 
   const enabledSkills = settingsDraft.claude.enabledSkills;
+  const allSkillNames = skills.map((skill) => skill.name);
+  const effectiveEnabledSkills = enabledSkills.length === 0 ? allSkillNames : enabledSkills.filter((name) => allSkillNames.includes(name));
 
   const toggleSkill = (name: string, enabled: boolean): void => {
-    const next = enabled
-      ? [...enabledSkills, name]
-      : enabledSkills.filter((s) => s !== name);
+    if (settingsDraft.providerId !== 'claude') return;
+    const current = enabledSkills.length === 0 ? allSkillNames : effectiveEnabledSkills;
+    const nextSet = enabled
+      ? [...current, name]
+      : current.filter((skillName) => skillName !== name);
+    const next = [...new Set(nextSet)];
     onSettingsChange({
       ...settingsDraft,
-      claude: { ...settingsDraft.claude, enabledSkills: next },
+      claude: {
+        ...settingsDraft.claude,
+        enabledSkills: next.length === allSkillNames.length ? [] : next,
+      },
     });
   };
 
@@ -1110,7 +1418,7 @@ function SkillSettings({
   const workspaceSkills = skills.filter((s) => s.scope === 'workspace');
 
   const renderSkillItem = (skill: SkillInfo): ReactNode => {
-    const isEnabled = enabledSkills.length === 0 || enabledSkills.includes(skill.name);
+    const isEnabled = enabledSkills.length === 0 || effectiveEnabledSkills.includes(skill.name);
     return (
       <div
         key={`${skill.scope}-${skill.name}`}
@@ -1124,7 +1432,7 @@ function SkillSettings({
         </div>
         <Switch
           checked={isEnabled}
-          disabled={disabled}
+          disabled={disabled || settingsDraft.providerId !== 'claude'}
           aria-label={`${isEnabled ? '禁用' : '启用'} ${skill.name}`}
           onCheckedChange={(checked) => toggleSkill(skill.name, checked)}
         />
@@ -1136,6 +1444,11 @@ function SkillSettings({
     <FieldSet disabled={disabled}>
       <FieldLegend>技能</FieldLegend>
       <FieldGroup>
+        {settingsDraft.providerId !== 'claude' && (
+          <div className="rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground">
+            当前仅对 Claude provider 应用此处的技能开关。Codex 会继续使用自身配置中的技能策略。
+          </div>
+        )}
         {loading ? (
           <div className="py-6 text-center text-sm text-muted-foreground">加载中...</div>
         ) : skills.length === 0 ? (
@@ -1291,17 +1604,26 @@ function defaultAiSettings(): AiSettings {
     claude: {
       pathToClaudeCodeExecutable: '',
       permissionMode: 'default',
+      thinkingIntensity: 'medium',
       useUserSettings: false,
       customEnvText: '',
       enabledSkills: [],
     },
+    codex: {
+      pathToCodexExecutable: '',
+      model: '',
+      approvalPolicy: 'on-request',
+      reasoningEffort: 'medium',
+      customEnvText: '',
+    },
+    petOverrides: {},
   };
 }
 
 function normalizeSettings(settings: AiSettings | null | undefined): AiSettings {
   const defaults = defaultAiSettings();
   return {
-    providerId: 'claude',
+    providerId: settings?.providerId ?? defaults.providerId,
     petAlwaysOnTop: settings?.petAlwaysOnTop ?? defaults.petAlwaysOnTop,
     petGravityEnabled: settings?.petGravityEnabled ?? defaults.petGravityEnabled,
     petScale: settings?.petScale ?? defaults.petScale,
@@ -1312,6 +1634,11 @@ function normalizeSettings(settings: AiSettings | null | undefined): AiSettings 
       ...settings?.claude,
       enabledSkills: settings?.claude?.enabledSkills ?? [],
     },
+    codex: {
+      ...defaults.codex,
+      ...settings?.codex,
+    },
+    petOverrides: settings?.petOverrides ?? {},
   };
 }
 

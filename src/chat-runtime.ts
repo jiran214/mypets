@@ -13,8 +13,9 @@ import type {
   ChatAttachment,
   ChatMessagePart,
   ChatMessage,
-  ClaudeProviderState,
   Conversation,
+  ProviderId,
+  ProviderState,
   ToolQuestionAnswerPayload,
   ToolQuestionPartData,
   ToolQuestionRequest,
@@ -61,6 +62,10 @@ export class ChatRuntime {
 
   setAiState(state: AiState): void {
     this.aiState = state;
+    if (!this.currentRequestId && this.conversation.messages.length === 0) {
+      this.conversation.providerId = state.settings.providerId;
+      this.conversation.providerState = {};
+    }
     this.notify();
   }
 
@@ -80,7 +85,7 @@ export class ChatRuntime {
     this.sessions = folder ? await this.loadSessions() : [];
     this.conversation = {
       id: `conv-${Date.now()}`,
-      providerId: 'claude',
+      providerId: this.aiState?.settings.providerId ?? 'claude',
       providerState: {},
       messages: [],
     };
@@ -117,7 +122,7 @@ export class ChatRuntime {
 
     this.conversation = {
       id: `conv-${Date.now()}`,
-      providerId: 'claude',
+      providerId: this.defaultProviderId(),
       providerState: {},
       messages: [],
     };
@@ -134,7 +139,7 @@ export class ChatRuntime {
     const stored = this.loadStoredConversation(session.id);
     this.conversation = stored?.conversation ?? {
       id: session.id,
-      providerId: 'claude',
+      providerId: session.providerId,
       providerState: session.providerState,
       messages: [],
     };
@@ -191,7 +196,7 @@ export class ChatRuntime {
     if (!this.conversationTitle) {
       this.conversationTitle = createTitle(prompt || attachments[0]?.name || '文件');
     }
-    this.statusText = '正在连接 Claude...';
+    this.statusText = `正在连接 ${this.providerLabel()}...`;
     this.conversation.messages.push(userMessage, assistantMessage);
     this.saveCurrentConversation();
     this.notify();
@@ -201,6 +206,7 @@ export class ChatRuntime {
         requestId,
         conversationId: this.conversation.id,
         workspaceFolder: this.workspaceFolder,
+        providerId: this.conversation.providerId,
         prompt,
         attachments,
         providerState: this.conversation.providerState,
@@ -215,7 +221,7 @@ export class ChatRuntime {
     if (!requestId || this.cancellingRequestId === requestId) return;
 
     this.cancellingRequestId = requestId;
-    this.statusText = '正在打断 Claude...';
+    this.statusText = `正在打断 ${this.providerLabel()}...`;
     this.notify();
 
     try {
@@ -242,7 +248,7 @@ export class ChatRuntime {
     }));
     if (!request) return;
 
-    this.statusText = '已发送选择，等待 Claude 继续...';
+    this.statusText = `已发送选择，等待 ${this.providerLabel()} 继续...`;
     this.saveCurrentConversation();
     this.notify();
 
@@ -278,7 +284,7 @@ export class ChatRuntime {
     if (event.requestId !== this.currentRequestId) return;
 
     if (event.type === 'status') {
-      this.statusText = event.status === 'started' ? 'Claude 正在回复...' : event.status;
+      this.statusText = event.status === 'started' ? `${this.providerLabel()} 正在回复...` : event.status;
       this.notify();
       return;
     }
@@ -295,7 +301,7 @@ export class ChatRuntime {
       if (!assistant) return;
       this.appendPart(assistant, { kind: 'text', text: event.text });
       assistant.pending = true;
-      this.statusText = 'Claude 正在回复...';
+      this.statusText = `${this.providerLabel()} 正在回复...`;
       this.saveCurrentConversation();
       this.notify();
       return;
@@ -306,7 +312,7 @@ export class ChatRuntime {
       if (!assistant) return;
       this.appendPart(assistant, event.part);
       assistant.pending = true;
-      this.statusText = 'Claude 正在回复...';
+      this.statusText = `${this.providerLabel()} 正在回复...`;
       this.saveCurrentConversation();
       this.notify();
       return;
@@ -346,7 +352,7 @@ export class ChatRuntime {
     this.finishWithError(event.error);
   }
 
-  private mergeProviderState(providerState: ClaudeProviderState): void {
+  private mergeProviderState(providerState: ProviderState): void {
     this.conversation.providerState = {
       ...this.conversation.providerState,
       ...providerState,
@@ -398,7 +404,7 @@ export class ChatRuntime {
         assistant.parts.push({
           id: crypto.randomUUID(),
           kind: 'status',
-          text: 'Claude 没有返回文本内容。',
+          text: `${this.providerLabel()} 没有返回文本内容。`,
         });
       }
     }
@@ -421,7 +427,7 @@ export class ChatRuntime {
       assistant.parts = [{
         id: crypto.randomUUID(),
         kind: 'status',
-        text: error || 'Claude 请求失败。',
+        text: error || `${this.providerLabel()} 请求失败。`,
       }];
     }
     this.currentRequestId = null;
@@ -500,6 +506,14 @@ export class ChatRuntime {
       return null;
     }
   }
+
+  private defaultProviderId(): ProviderId {
+    return this.aiState?.settings.providerId ?? 'claude';
+  }
+
+  private providerLabel(providerId: ProviderId = this.conversation.providerId): string {
+    return providerId === 'codex' ? 'Codex' : 'Claude';
+  }
 }
 
 function createTitle(prompt: string): string {
@@ -508,7 +522,7 @@ function createTitle(prompt: string): string {
 }
 
 function conversationStorageKey(workspaceFolder: string, conversationId: string): string {
-  return `mypets-chat-conversation:${workspaceFolder}:${conversationId}`;
+  return `wimipet-chat-conversation:${workspaceFolder}:${conversationId}`;
 }
 
 function questionTitle(question: Pick<ToolQuestionRequest, 'kind' | 'toolName'>): string {
@@ -545,7 +559,7 @@ function isConversation(value: unknown): value is Conversation {
   const conversation = value as Partial<Conversation>;
   return (
     typeof conversation.id === 'string'
-    && conversation.providerId === 'claude'
+    && (conversation.providerId === 'claude' || conversation.providerId === 'codex')
     && typeof conversation.providerState === 'object'
     && Array.isArray(conversation.messages)
   );

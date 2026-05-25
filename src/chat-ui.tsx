@@ -1,7 +1,7 @@
 import { getCurrentWindow, LogicalSize, PhysicalPosition } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import { createRoot, type Root } from 'react-dom/client';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   Check,
   CircleQuestionMark,
@@ -10,6 +10,7 @@ import {
   History,
   Paperclip,
   Plus,
+  Search,
   SendHorizontal,
   Sparkles,
   X,
@@ -61,6 +62,11 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { saveDroppedChatFile } from './ai-api';
 import type { ChatRuntime } from './chat-runtime';
@@ -134,7 +140,6 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
   const [historyOpen, setHistoryOpen] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [dragActive, setDragActive] = useState(false);
-  const panelRef = useRef<HTMLDivElement | null>(null);
   const resolvedVariant = variant ?? (compact ? 'bubble' : 'embedded');
   const isBubble = resolvedVariant === 'bubble';
 
@@ -189,15 +194,11 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
     void runtime.send(value, files);
   }, [attachments, inputValue, runtime, sendDisabled]);
 
-  const openHistory = useCallback(async (): Promise<void> => {
-    if (historyOpen) {
-      setHistoryOpen(false);
-      return;
-    }
-
-    setHistoryOpen(true);
-    await runtime.refreshSessions();
-  }, [historyOpen, runtime]);
+  const handleHistoryOpenChange = useCallback((open: boolean): void => {
+    setHistoryOpen(open);
+    if (!open) return;
+    void runtime.refreshSessions();
+  }, [runtime]);
 
   const startNewConversation = useCallback((): void => {
     runtime.startNewConversation();
@@ -213,17 +214,6 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
       document.dispatchEvent(new CustomEvent('open-chat-bubble'));
     }
   }, [compact, hasPendingQuestion]);
-
-  useEffect(() => {
-    const handleClick = (event: MouseEvent): void => {
-      if (!historyOpen) return;
-      if (panelRef.current?.contains(event.target as Node)) return;
-      setHistoryOpen(false);
-    };
-
-    document.addEventListener('click', handleClick);
-    return () => document.removeEventListener('click', handleClick);
-  }, [historyOpen]);
 
   useEffect(() => {
     if (!hasTauriRuntime()) return;
@@ -347,7 +337,6 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
 
   return (
     <div
-      ref={panelRef}
       className={cn(
         'relative flex size-full min-h-0 flex-col overflow-hidden bg-background',
         isBubble && 'rounded-[18px] border shadow-xl',
@@ -360,22 +349,35 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
           <span />
         )}
         <div className="flex items-center">
-          <Button
-            variant={historyOpen ? 'secondary' : 'ghost'}
-            size="icon-sm"
-            type="button"
-            className={cn('size-8 rounded-md', isStreaming && 'pointer-events-none cursor-default opacity-50')}
-            title="对话历史"
-            aria-label="对话历史"
-            aria-disabled={isStreaming || !hasWorkspace}
-            disabled={!hasWorkspace}
-            onClick={() => {
-              if (isStreaming) return;
-              void openHistory();
-            }}
-          >
-            <History data-icon="inline-start" />
-          </Button>
+          <DropdownMenu modal={false} open={historyOpen} onOpenChange={handleHistoryOpenChange}>
+            <DropdownMenuTrigger asChild disabled={isStreaming || !hasWorkspace}>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                type="button"
+                className={cn('size-8 rounded-md', isStreaming && 'pointer-events-none cursor-default opacity-50')}
+                title="对话历史"
+                aria-label="对话历史"
+              >
+                <History data-icon="inline-start" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={6}
+              onCloseAutoFocus={(event) => event.preventDefault()}
+              className="w-[min(320px,calc(100vw-32px))] min-w-[280px] p-0"
+            >
+              <HistoryList
+                sessions={runtime.getSessions()}
+                hasWorkspace={hasWorkspace}
+                onSelect={(session) => {
+                  runtime.resumeConversation(session);
+                  setHistoryOpen(false);
+                }}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -406,19 +408,6 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
           )}
         </div>
       </div>
-
-      {historyOpen && (
-        <div className="absolute left-1/2 top-12 z-10 w-[min(280px,calc(100%-24px))] -translate-x-1/2 overflow-hidden rounded-lg border bg-popover text-popover-foreground shadow-lg">
-          <HistoryList
-            sessions={runtime.getSessions()}
-            hasWorkspace={hasWorkspace}
-            onSelect={(session) => {
-              runtime.resumeConversation(session);
-              setHistoryOpen(false);
-            }}
-          />
-        </div>
-      )}
 
       <Conversation className={cn('min-h-0', isBubble ? 'bg-muted/20' : 'bg-background')}>
         <ConversationContent className={cn('min-h-full gap-5 p-4', compact && 'gap-4 p-3', !hasMessages && 'justify-center')}>
@@ -552,33 +541,65 @@ interface HistoryListProps {
 }
 
 function HistoryList({ sessions, hasWorkspace, onSelect }: HistoryListProps): ReactNode {
+  const [search, setSearch] = useState('');
+
   if (!hasWorkspace) {
     return <div className="px-3 py-4 text-center text-sm text-muted-foreground">请先选择桌宠工作空间</div>;
   }
 
-  if (sessions.length === 0) {
-    return <div className="px-3 py-4 text-center text-sm text-muted-foreground">暂无历史对话</div>;
-  }
+  const filtered = search.trim()
+    ? sessions.filter((s) => (s.title || '历史对话').toLowerCase().includes(search.trim().toLowerCase()))
+    : sessions;
 
   return (
-    <ScrollArea className="max-h-72">
-      <div className="flex flex-col gap-1 p-1.5">
-        {sessions.map((session) => (
-          <Button
-            className="h-auto justify-start px-2 py-2 text-left"
-            variant="ghost"
-            type="button"
-            key={session.id}
-            onClick={() => onSelect(session)}
-          >
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate text-sm font-medium">{session.title || '历史对话'}</span>
-              <span className="truncate text-xs text-muted-foreground">{formatSessionTime(session.updatedAt)}</span>
-            </span>
-          </Button>
-        ))}
+    <div className="flex min-h-0 flex-col overflow-hidden">
+      <div className="shrink-0 border-b px-2.5 py-2">
+        <div className="flex items-center gap-1.5 rounded-md border bg-background px-2 py-1">
+          <Search className="size-3.5 shrink-0 text-muted-foreground" />
+          <input
+            className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+            placeholder="搜索对话标题..."
+            value={search}
+            onChange={(e) => setSearch(e.currentTarget.value)}
+          />
+          {search && (
+            <button
+              type="button"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              onClick={() => setSearch('')}
+              aria-label="清除搜索"
+            >
+              <X className="size-3" />
+            </button>
+          )}
+        </div>
       </div>
-    </ScrollArea>
+      {filtered.length === 0 ? (
+        <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+          {sessions.length === 0 ? '暂无历史对话' : '无匹配结果'}
+        </div>
+      ) : (
+        <ScrollArea className="max-h-72">
+          <div className="flex flex-col gap-0.5 p-1.5 pr-2">
+            {filtered.map((session) => (
+              <Button
+                className="h-auto w-full max-w-full shrink justify-start overflow-hidden px-2 py-2 text-left"
+                variant="ghost"
+                type="button"
+                key={session.id}
+                onClick={() => onSelect(session)}
+                title={session.title || '历史对话'}
+              >
+                <span className="flex min-w-0 w-full flex-col gap-0.5 overflow-hidden">
+                  <span className="block truncate text-sm font-medium">{session.title || '历史对话'}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{formatSessionTime(session.updatedAt)}</span>
+                </span>
+              </Button>
+            ))}
+          </div>
+        </ScrollArea>
+      )}
+    </div>
   );
 }
 
@@ -737,7 +758,7 @@ function ToolQuestionForm({
   }
 
   const disabled = data.status === 'submitting';
-  const canSubmit = data.questions.every((question) => questionAnswerText(question, answers, customAnswers).trim());
+  const canSubmit = data.questions.every((question) => questionAnswerValues(question, answers, customAnswers).length > 0);
 
   const toggleOption = (question: ToolQuestionItem, option: ToolQuestionOption): void => {
     const key = question.question;
@@ -778,8 +799,7 @@ function ToolQuestionForm({
 
     const response: ToolQuestionAnswerPayload = { answers: {}, annotations: {} };
     for (const question of data.questions) {
-      const answer = questionAnswerText(question, answers, customAnswers);
-      response.answers[question.question] = answer;
+      response.answers[question.question] = questionAnswerValues(question, answers, customAnswers);
 
       const preview = selectedPreview(question, answers, activePreviews);
       if (preview) {
@@ -865,7 +885,7 @@ function ToolQuestionForm({
       )}
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground">
-          {data.status === 'submitting' ? '正在回传...' : '选择会继续当前 Claude 回复'}
+          {data.status === 'submitting' ? '正在回传...' : '选择会继续当前回复'}
         </span>
         <Button
           type="button"
@@ -892,7 +912,7 @@ function ToolQuestionAnswerSummary({ response }: { response?: ToolQuestionAnswer
       {entries.map(([question, answer]) => (
         <div className="rounded-md bg-muted/40 px-2.5 py-2 text-xs" key={question}>
           <div className="mb-1 text-muted-foreground">{question}</div>
-          <div className="font-medium text-foreground">{answer}</div>
+          <div className="font-medium text-foreground">{answer.join(', ')}</div>
         </div>
       ))}
     </div>
@@ -949,14 +969,14 @@ function isToolQuestionStatus(value: unknown): value is ToolQuestionPartData['st
   return value === 'pending' || value === 'submitting' || value === 'answered' || value === 'error';
 }
 
-function questionAnswerText(
+function questionAnswerValues(
   question: ToolQuestionItem,
   answers: Record<string, string[]>,
   customAnswers: Record<string, string>,
-): string {
+) : string[] {
   const selected = answers[question.question] ?? [];
   const custom = customAnswers[question.question]?.trim();
-  return [...selected, ...(custom ? [custom] : [])].join(', ');
+  return [...selected, ...(custom ? [custom] : [])];
 }
 
 function selectedPreview(

@@ -1,10 +1,10 @@
 [package]
-name = "mypets"
+name = "wimipet"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "mypets_lib"
+name = "wimipet_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

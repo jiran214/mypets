@@ -29,12 +29,40 @@ pub struct ClaudeSettings {
     pub path_to_claude_code_executable: String,
     #[serde(default = "default_permission_mode")]
     pub permission_mode: String,
+    #[serde(default = "default_thinking_intensity")]
+    pub thinking_intensity: String,
     #[serde(default)]
     pub use_user_settings: bool,
     #[serde(default)]
     pub custom_env_text: String,
     #[serde(default)]
     pub enabled_skills: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexSettings {
+    #[serde(default)]
+    pub path_to_codex_executable: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default = "default_codex_approval_policy")]
+    pub approval_policy: String,
+    #[serde(default = "default_codex_reasoning_effort")]
+    pub reasoning_effort: String,
+    #[serde(default)]
+    pub custom_env_text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PetOverrides {
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub spritesheet_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -54,13 +82,17 @@ pub struct AiSettings {
     pub pet_persona: String,
     #[serde(default)]
     pub claude: ClaudeSettings,
+    #[serde(default)]
+    pub codex: CodexSettings,
+    #[serde(default)]
+    pub pet_overrides: PetOverrides,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiPaths {
     pub workspace_dir: String,
-    pub mypets_ai_dir: String,
+    pub wimipet_dir: String,
     pub claude_dir: String,
     pub sessions_dir: String,
     pub log_file: String,
@@ -102,6 +134,8 @@ pub struct AiChatRequest {
     pub request_id: String,
     pub conversation_id: String,
     pub workspace_folder: String,
+    #[serde(default = "default_provider_id")]
+    pub provider_id: String,
     pub prompt: String,
     #[serde(default)]
     pub attachments: Vec<AiChatAttachment>,
@@ -142,7 +176,7 @@ pub struct AiSessionSummary {
 #[derive(Clone)]
 struct StoragePaths {
     workspace_dir: PathBuf,
-    mypets_ai_dir: PathBuf,
+    wimipet_dir: PathBuf,
     claude_dir: PathBuf,
     sessions_dir: PathBuf,
     log_file: PathBuf,
@@ -235,9 +269,22 @@ impl Default for ClaudeSettings {
         Self {
             path_to_claude_code_executable: String::new(),
             permission_mode: default_permission_mode(),
+            thinking_intensity: default_thinking_intensity(),
             use_user_settings: false,
             custom_env_text: String::new(),
             enabled_skills: Vec::new(),
+        }
+    }
+}
+
+impl Default for CodexSettings {
+    fn default() -> Self {
+        Self {
+            path_to_codex_executable: String::new(),
+            model: String::new(),
+            approval_policy: default_codex_approval_policy(),
+            reasoning_effort: default_codex_reasoning_effort(),
+            custom_env_text: String::new(),
         }
     }
 }
@@ -252,6 +299,8 @@ impl Default for AiSettings {
             pet_resize_enabled: false,
             pet_persona: default_pet_persona(),
             claude: ClaudeSettings::default(),
+            codex: CodexSettings::default(),
+            pet_overrides: PetOverrides::default(),
         }
     }
 }
@@ -262,6 +311,18 @@ fn default_provider_id() -> String {
 
 fn default_permission_mode() -> String {
     "default".to_string()
+}
+
+fn default_thinking_intensity() -> String {
+    "medium".to_string()
+}
+
+fn default_codex_approval_policy() -> String {
+    "on-request".to_string()
+}
+
+fn default_codex_reasoning_effort() -> String {
+    "medium".to_string()
 }
 
 fn default_pet_gravity_enabled() -> bool {
@@ -304,14 +365,14 @@ fn storage_paths(workspace_folder: &str) -> Result<StoragePaths, String> {
         ));
     }
     let workspace_dir = fs::canonicalize(&workspace_dir).unwrap_or(workspace_dir);
-    let mypets_ai_dir = workspace_dir.join(".mypets-ai");
+    let wimipet_dir = workspace_dir.join(".wimipet");
     let claude_dir = workspace_dir.join(".claude");
-    let sessions_dir = mypets_ai_dir.join("sessions");
-    let log_file = mypets_ai_dir.join("logs").join("ai.log");
+    let sessions_dir = wimipet_dir.join("sessions");
+    let log_file = wimipet_dir.join("logs").join("ai.log");
 
     Ok(StoragePaths {
         workspace_dir,
-        mypets_ai_dir,
+        wimipet_dir,
         claude_dir,
         sessions_dir,
         log_file,
@@ -321,7 +382,7 @@ fn storage_paths(workspace_folder: &str) -> Result<StoragePaths, String> {
 fn public_paths(paths: &StoragePaths) -> AiPaths {
     AiPaths {
         workspace_dir: path_to_string(&paths.workspace_dir),
-        mypets_ai_dir: path_to_string(&paths.mypets_ai_dir),
+        wimipet_dir: path_to_string(&paths.wimipet_dir),
         claude_dir: path_to_string(&paths.claude_dir),
         sessions_dir: path_to_string(&paths.sessions_dir),
         log_file: path_to_string(&paths.log_file),
@@ -329,7 +390,7 @@ fn public_paths(paths: &StoragePaths) -> AiPaths {
 }
 
 fn ensure_storage(paths: &StoragePaths) -> Result<(), String> {
-    fs::create_dir_all(&paths.mypets_ai_dir).map_err(|err| err.to_string())?;
+    fs::create_dir_all(&paths.wimipet_dir).map_err(|err| err.to_string())?;
     fs::create_dir_all(&paths.sessions_dir).map_err(|err| err.to_string())?;
     if let Some(log_dir) = paths.log_file.parent() {
         fs::create_dir_all(log_dir).map_err(|err| err.to_string())?;
@@ -368,7 +429,7 @@ fn append_ai_log(paths: &StoragePaths, message: &str) {
 }
 
 fn ai_settings_path(paths: &StoragePaths) -> PathBuf {
-    paths.mypets_ai_dir.join("settings.json")
+    paths.wimipet_dir.join("settings.json")
 }
 
 fn load_settings(paths: &StoragePaths) -> Result<AiSettings, String> {
@@ -405,6 +466,7 @@ fn session_meta_path(paths: &StoragePaths, conversation_id: &str) -> PathBuf {
 fn write_session_meta(
     paths: &StoragePaths,
     conversation_id: &str,
+    provider_id: &str,
     provider_state: Value,
     prompt: &str,
 ) -> Result<(), String> {
@@ -426,7 +488,7 @@ fn write_session_meta(
 
     let meta = AiSessionMeta {
         id: conversation_id.to_string(),
-        provider_id: default_provider_id(),
+        provider_id: provider_id.to_string(),
         provider_state,
         title,
         created_at,
@@ -569,6 +631,14 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+fn provider_skill_dir_name(provider_id: &str) -> &str {
+    if provider_id == "codex" {
+        ".codex"
+    } else {
+        ".claude"
+    }
+}
+
 fn parse_skill_md(path: &Path) -> Option<SkillInfo> {
     let raw = fs::read_to_string(path).ok()?;
     let mut name = String::new();
@@ -640,18 +710,19 @@ fn scan_skills_dir(dir: &Path, scope: &str) -> Vec<SkillInfo> {
 }
 
 #[tauri::command]
-pub fn list_skills(workspace_folder: String) -> Result<Vec<SkillInfo>, String> {
+pub fn list_skills(workspace_folder: String, provider_id: Option<String>) -> Result<Vec<SkillInfo>, String> {
     let mut skills = Vec::new();
+    let provider_dir = provider_skill_dir_name(provider_id.as_deref().unwrap_or("claude"));
 
     if let Some(home) = home_dir() {
-        let global_dir = home.join(".claude").join("skills");
+        let global_dir = home.join(provider_dir).join("skills");
         skills.extend(scan_skills_dir(&global_dir, "global"));
     }
 
     if !workspace_folder.trim().is_empty() {
         let workspace_dir = PathBuf::from(&workspace_folder);
         if workspace_dir.exists() {
-            let workspace_skills = workspace_dir.join(".claude").join("skills");
+            let workspace_skills = workspace_dir.join(provider_dir).join("skills");
             skills.extend(scan_skills_dir(&workspace_skills, "workspace"));
         }
     }
@@ -673,7 +744,7 @@ pub fn save_dropped_chat_file(
         .decode(data_base64)
         .map_err(|err| format!("Cannot decode dropped file: {err}"))?;
     let file_name = safe_dropped_file_name(&name);
-    let drop_dir = paths.mypets_ai_dir.join("dropped-files");
+    let drop_dir = paths.wimipet_dir.join("dropped-files");
     fs::create_dir_all(&drop_dir).map_err(|err| err.to_string())?;
 
     let path = drop_dir.join(format!("{}-{file_name}", now_ms()));
@@ -691,6 +762,11 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
     let paths = storage_paths(&request.workspace_folder)?;
     ensure_storage(&paths)?;
     let settings = load_settings(&paths)?;
+    let provider_id = if request.provider_id.trim().is_empty() {
+        settings.provider_id.clone()
+    } else {
+        request.provider_id.clone()
+    };
     let session_prompt = if request.prompt.trim().is_empty() {
         let file_names = request
             .attachments
@@ -709,6 +785,7 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
     write_session_meta(
         &paths,
         &request.conversation_id,
+        &provider_id,
         request.provider_state.clone(),
         &session_prompt,
     )?;
@@ -725,22 +802,35 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
     let payload = json!({
         "requestId": request.request_id,
         "conversationId": request.conversation_id,
+        "providerId": provider_id,
         "prompt": request.prompt,
         "attachments": request.attachments,
         "providerState": request.provider_state,
         "settings": {
+            "providerId": settings.provider_id,
             "petPersona": settings.pet_persona,
-            "pathToClaudeCodeExecutable": settings.claude.path_to_claude_code_executable,
-            "permissionMode": settings.claude.permission_mode,
-            "useUserSettings": settings.claude.use_user_settings,
-            "customEnvText": settings.claude.custom_env_text,
+            "claude": {
+                "pathToClaudeCodeExecutable": settings.claude.path_to_claude_code_executable,
+                "permissionMode": settings.claude.permission_mode,
+                "thinkingIntensity": settings.claude.thinking_intensity,
+                "useUserSettings": settings.claude.use_user_settings,
+                "customEnvText": settings.claude.custom_env_text,
+                "enabledSkills": settings.claude.enabled_skills,
+            },
+            "codex": {
+                "pathToCodexExecutable": settings.codex.path_to_codex_executable,
+                "model": settings.codex.model,
+                "approvalPolicy": settings.codex.approval_policy,
+                "reasoningEffort": settings.codex.reasoning_effort,
+                "customEnvText": settings.codex.custom_env_text,
+            },
         },
         "paths": public_paths(&paths),
     });
 
     append_ai_log(
         &paths,
-        &format!("Starting Claude request {}", request.request_id),
+        &format!("Starting {} request {}", provider_id, request.request_id),
     );
 
     let mut child = match Command::new("node")
@@ -801,6 +891,7 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
     let request_id_for_stdout = request.request_id.clone();
     let request_id_for_stderr = request.request_id.clone();
     let conversation_id = request.conversation_id.clone();
+    let provider_id_for_meta = provider_id.clone();
     let paths_for_meta = paths.clone();
     let paths_for_log = paths.clone();
     let stderr_buffer = Arc::new(Mutex::new(String::new()));
@@ -832,8 +923,9 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
                     let _ = write_session_meta(
                         &paths_for_meta,
                         &conversation_id,
+                        &provider_id_for_meta,
                         provider_state.clone(),
-                        "Claude conversation",
+                        "AI conversation",
                     );
                 }
             }

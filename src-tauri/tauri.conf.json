@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/mirrors/tauri/tauri-v2/crates/tauri-cli/schema.json",
-  "productName": "Mypets",
+  "productName": "Wimi Pet",
   "version": "0.1.0",
-  "identifier": "com.mypets.desktop-pet",
+  "identifier": "com.wimipet.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -13,11 +13,11 @@
     "windows": [
       {
         "label": "main",
-        "title": "Mypets",
+        "title": "Wimi Pet",
         "transparent": true,
         "dragDropEnabled": false,
-        "decorations": true,
-        "shadow": true,
+        "decorations": false,
+        "shadow": false,
         "resizable": false,
         "center": true,
         "width": 1180,

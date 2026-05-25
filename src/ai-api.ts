@@ -7,6 +7,7 @@ import type {
   AiSettings,
   AiState,
   AiToolQuestionAnswerRequest,
+  ProviderId,
   SavedDroppedChatFile,
   SkillInfo,
 } from './ai-types';
@@ -23,8 +24,8 @@ export function saveAiSettings(workspaceFolder: string, settings: AiSettings): P
   return invoke<AiState>('save_ai_settings', { workspaceFolder, settings });
 }
 
-export function listSkills(workspaceFolder: string): Promise<SkillInfo[]> {
-  return invoke<SkillInfo[]>('list_skills', { workspaceFolder });
+export function listSkills(workspaceFolder: string, providerId: ProviderId): Promise<SkillInfo[]> {
+  return invoke<SkillInfo[]>('list_skills', { workspaceFolder, providerId });
 }
 
 export function saveDroppedChatFile(

@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'mypets-pet-scales-v1';
+const STORAGE_KEY = 'wimipet-pet-scales-v1';
 const DEFAULT_SCALE = 0.8;
 
 function readScales(): Record<string, number> {

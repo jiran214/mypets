@@ -35,9 +35,9 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .text(TRAY_QUIT_ID, "退出")
         .build()?;
 
-    let mut tray = TrayIconBuilder::with_id("mypets-main-tray")
+    let mut tray = TrayIconBuilder::with_id("wimipet-main-tray")
         .menu(&tray_menu)
-        .tooltip("Mypets")
+        .tooltip("Wimi Pet")
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             TRAY_SHOW_MAIN_ID => show_main_window(app),
@@ -99,7 +99,7 @@ pub fn run() {
             pet::load_pet,
             pet::load_spritesheet,
             pet::open_workspace_in_file_manager,
-            pet::update_pet_display_name,
+            pet::update_pet_overrides,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,7 +1,7 @@
 import { loadPet } from './pet-loader';
 import type { PetMeta } from './types';
 
-const STORAGE_KEY = 'mypets-workspaces-v1';
+const STORAGE_KEY = 'wimipet-workspaces-v1';
 
 interface WorkspaceRegistry {
   folders: string[];

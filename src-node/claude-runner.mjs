@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -56,7 +56,7 @@ inputBridge.on('line', (line) => {
 
 inputBridge.on('close', () => {
   if (!receivedInitialPayload) {
-    rejectInitialPayload(new Error('No Claude helper input received'));
+    rejectInitialPayload(new Error('No AI helper input received'));
   }
   for (const [questionId, pending] of pendingToolResponses) {
     pending.reject(new Error(`Input closed before receiving answer for ${questionId}`));
@@ -130,7 +130,7 @@ function attachmentDirectories(attachments) {
     if (attachment.kind !== 'file') continue;
     const stat = statPath(attachment.path);
     if (!stat) continue;
-    directories.add(stat.isDirectory() ? attachment.path : dirname(attachment.path));
+    directories.add(normalize(stat.isDirectory() ? attachment.path : dirname(attachment.path)));
   }
   return [...directories];
 }
@@ -192,6 +192,14 @@ function execText(command, args) {
   }
 }
 
+function wherePaths(name) {
+  if (process.platform !== 'win32') return [];
+  return execText('where.exe', [name])
+    .split(/\r?\n/)
+    .map((path) => path.trim())
+    .filter(Boolean);
+}
+
 function npmClaudePath() {
   const root = execText('npm', ['root', '-g']);
   return root ? join(root, '@anthropic-ai', 'claude-code', 'cli-wrapper.cjs') : '';
@@ -207,10 +215,7 @@ function findClaudeExecutable() {
       join(home, '.local', 'bin', 'claude.exe'),
       join(localAppData, 'Claude', 'claude.exe'),
       npmClaudePath(),
-      ...execText('where.exe', ['claude'])
-        .split(/\r?\n/)
-        .map((path) => path.trim())
-        .filter((path) => path && !path.includes('WindowsApps') && !path.endsWith('.cmd') && !path.endsWith('.ps1')),
+      ...wherePaths('claude'),
     );
   } else {
     candidates.push(
@@ -219,6 +224,51 @@ function findClaudeExecutable() {
       '/opt/homebrew/bin/claude',
       npmClaudePath(),
       execText('which', ['claude']),
+    );
+  }
+
+  const seen = new Set();
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const path = normalize(candidate);
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const found = existingFile(path);
+    if (found) return found;
+  }
+
+  return undefined;
+}
+
+function findCodexExecutable() {
+  const home = homedir();
+  const candidates = [];
+
+  if (process.platform === 'win32') {
+    const shellCandidates = [
+      ...wherePaths('codex.cmd'),
+      ...wherePaths('codex').filter((path) => {
+        const lower = path.toLowerCase();
+        return lower.endsWith('.cmd') || lower.endsWith('.bat');
+      }),
+    ];
+
+    candidates.push(
+      join(home, '.local', 'bin', 'codex.cmd'),
+      ...shellCandidates,
+      join(home, '.local', 'bin', 'codex.exe'),
+      ...wherePaths('codex').filter((path) => {
+        const lower = path.toLowerCase();
+        return !lower.endsWith('.cmd') && !lower.endsWith('.bat') && !lower.endsWith('.ps1');
+      }),
+      ...wherePaths('codex.exe'),
+    );
+  } else {
+    candidates.push(
+      join(home, '.local', 'bin', 'codex'),
+      '/usr/local/bin/codex',
+      '/opt/homebrew/bin/codex',
+      execText('which', ['codex']),
     );
   }
 
@@ -320,9 +370,10 @@ function normalizeQuestionItem(item, index) {
   const options = Array.isArray(item?.options)
     ? item.options.slice(0, 4).map(normalizeQuestionOption)
     : [];
+  const questionText = asOptionalString(item?.question) ?? `请选择第 ${index + 1} 项`;
 
   return {
-    question: asOptionalString(item?.question) ?? `请选择第 ${index + 1} 项`,
+    question: questionText,
     header: asOptionalString(item?.header) ?? `问题 ${index + 1}`,
     options: options.length >= 2
       ? options
@@ -341,14 +392,14 @@ function normalizeAskUserQuestions(input) {
 }
 
 function createPermissionQuestion(toolName, input, ctx) {
-  const title = ctx.title || `Claude 想使用 ${toolName}`;
+  const title = ctx.title || `Agent 想使用 ${toolName}`;
   const description = ctx.description || stringifyBrief(input);
   return {
     question: title.endsWith('？') || title.endsWith('?') ? title : `${title}？`,
     header: ctx.displayName || toolName,
     options: [
-      { label: '允许', description: description || '允许 Claude 执行这个工具调用。' },
-      { label: '拒绝', description: '不执行这个工具调用，并告诉 Claude 你拒绝了。' },
+      { label: '允许', description: description || '允许执行这个工具调用。' },
+      { label: '拒绝', description: '不执行这个工具调用，并告诉 Agent 你拒绝了。' },
     ],
     multiSelect: false,
   };
@@ -397,28 +448,44 @@ function waitForToolResponse(questionId, signal) {
   });
 }
 
+function normalizeAnswerArray(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    return [value.trim()];
+  }
+  return [];
+}
+
 async function handleAskUserQuestion(toolName, input, ctx) {
   const questionId = ctx.toolUseID || randomUUID();
+  const questions = normalizeAskUserQuestions(input);
   const question = {
     id: questionId,
     requestId: activeRequestId,
     toolName,
     toolUseId: ctx.toolUseID || questionId,
     kind: 'ask-user-question',
-    title: ctx.title || 'Claude 需要你的选择',
+    title: ctx.title || 'Agent 需要你的选择',
     ...(ctx.description ? { description: ctx.description } : {}),
-    questions: normalizeAskUserQuestions(input),
+    questions,
   };
 
   emitToolQuestion(activeRequestId, question);
   const response = await waitForToolResponse(questionId, ctx.signal);
-  const answers = response?.answers && typeof response.answers === 'object' ? response.answers : {};
+  const nextAnswers = {};
+  for (const item of questions) {
+    nextAnswers[item.question] = normalizeAnswerArray(response?.answers?.[item.question]).join(', ');
+  }
   return {
     behavior: 'allow',
     toolUseID: ctx.toolUseID,
     updatedInput: {
       ...input,
-      answers,
+      answers: nextAnswers,
       ...(response?.annotations ? { annotations: response.annotations } : {}),
     },
   };
@@ -440,8 +507,8 @@ async function handlePermissionQuestion(toolName, input, ctx) {
 
   emitToolQuestion(activeRequestId, question);
   const response = await waitForToolResponse(questionId, ctx.signal);
-  const answer = response?.answers?.[prompt.question] ?? '';
-  if (String(answer).includes('允许')) {
+  const answer = normalizeAnswerArray(response?.answers?.[prompt.question]);
+  if (answer.some((item) => item.includes('允许'))) {
     return {
       behavior: 'allow',
       toolUseID: ctx.toolUseID,
@@ -523,9 +590,14 @@ function emitSdkStatusPart(requestId, message) {
   }
 }
 
-async function main() {
-  const input = await initialPayloadPromise;
+function parseProviderId(input) {
+  const providerId = asOptionalString(input.providerId) ?? asOptionalString(input.settings?.providerId);
+  return providerId === 'codex' ? 'codex' : 'claude';
+}
+
+async function runClaude(input) {
   const settings = input.settings ?? {};
+  const claudeSettings = settings.claude ?? {};
   const providerState = input.providerState ?? {};
   const requestId = input.requestId;
   const attachments = normalizeAttachments(input.attachments);
@@ -536,21 +608,35 @@ async function main() {
   const workspaceDir = asOptionalString(input.paths?.workspaceDir) ?? process.cwd();
   const claudeDir = asOptionalString(input.paths?.claudeDir);
   const additionalDirectories = attachmentDirectories(attachments);
-  const customEnv = parseCustomEnv(settings.customEnvText);
+  const customEnv = parseCustomEnv(claudeSettings.customEnvText);
+  const thinkingIntensityMap = {
+    low: 1024,
+    medium: 5000,
+    high: 10000,
+    xhigh: 20000,
+    max: 32000,
+  };
+  const thinkingBudget = thinkingIntensityMap[claudeSettings.thinkingIntensity] || thinkingIntensityMap.medium;
+
   const options = {
     includePartialMessages: true,
     canUseTool,
     toolConfig: {
       askUserQuestion: { previewFormat: 'markdown' },
     },
-    permissionMode: settings.permissionMode || 'default',
+    permissionMode: claudeSettings.permissionMode || 'default',
+    thinking: {
+      type: 'enabled',
+      budget_tokens: thinkingBudget,
+    },
     settingSources: ['project', 'local'],
+    skills: Array.isArray(claudeSettings.enabledSkills) && claudeSettings.enabledSkills.length > 0 ? claudeSettings.enabledSkills : 'all',
     cwd: workspaceDir,
     env: {
       ...process.env,
       ...customEnv,
       ...(claudeDir ? { CLAUDE_CONFIG_DIR: claudeDir } : {}),
-      CLAUDE_AGENT_SDK_CLIENT_APP: 'mypets',
+      CLAUDE_AGENT_SDK_CLIENT_APP: 'wimipet',
     },
   };
 
@@ -558,14 +644,14 @@ async function main() {
     options.additionalDirectories = additionalDirectories;
   }
 
-  if (settings.permissionMode === 'bypassPermissions') {
+  if (claudeSettings.permissionMode === 'bypassPermissions') {
     options.allowDangerouslySkipPermissions = true;
   }
 
-  const executable = asOptionalString(settings.pathToClaudeCodeExecutable) ?? findClaudeExecutable();
+  const executable = asOptionalString(claudeSettings.pathToClaudeCodeExecutable) ?? findClaudeExecutable();
   if (executable) options.pathToClaudeCodeExecutable = executable;
 
-  if (settings.useUserSettings) {
+  if (claudeSettings.useUserSettings) {
     const userSettingsPath = join(homedir(), '.claude', 'settings.json');
     if (existsSync(userSettingsPath)) {
       options.settings = userSettingsPath;
@@ -578,55 +664,535 @@ async function main() {
 
   emit({ type: 'status', requestId, status: 'started' });
 
-  try {
-    for await (const message of query({ prompt: buildPrompt(input, attachments), options })) {
-      if (message.session_id && message.session_id !== lastSessionId) {
-        lastSessionId = message.session_id;
+  for await (const message of query({ prompt: buildPrompt(input, attachments), options })) {
+    if (message.session_id && message.session_id !== lastSessionId) {
+      lastSessionId = message.session_id;
+      emit({
+        type: 'session',
+        requestId,
+        providerState: { claudeSessionId: lastSessionId },
+      });
+    }
+
+    if (message.type === 'stream_event') {
+      const delta = textDeltaFromStreamEvent(message.event);
+      if (delta) {
+        sawTextDelta = true;
+        emit({ type: 'delta', requestId, text: delta });
+      }
+
+      const thinking = thinkingDeltaFromStreamEvent(message.event);
+      if (thinking) {
+        emitPart(requestId, 'thinking', thinking, '思考');
+      }
+      continue;
+    }
+
+    if (message.type === 'assistant') {
+      sawTextDelta = emitAssistantParts(requestId, message, !sawTextDelta) || sawTextDelta;
+      continue;
+    }
+
+    if (message.type === 'result') {
+      if (!sawTextDelta && !message.is_error && typeof message.result === 'string') {
+        emit({ type: 'delta', requestId, text: message.result });
+      }
+
+      if (message.is_error) {
+        const detail = Array.isArray(message.errors) ? message.errors.join('\n') : 'Claude request failed';
+        emit({ type: 'error', requestId, error: detail });
+      } else {
         emit({
-          type: 'session',
+          type: 'done',
           requestId,
-          providerState: { claudeSessionId: lastSessionId },
+          providerState: lastSessionId ? { claudeSessionId: lastSessionId } : providerState,
         });
       }
+      continue;
+    }
 
-      if (message.type === 'stream_event') {
-        const delta = textDeltaFromStreamEvent(message.event);
-        if (delta) {
-          sawTextDelta = true;
-          emit({ type: 'delta', requestId, text: delta });
-        }
+    emitSdkStatusPart(requestId, message);
+  }
+}
 
-        const thinking = thinkingDeltaFromStreamEvent(message.event);
-        if (thinking) {
-          emitPart(requestId, 'thinking', thinking, '思考');
-        }
-        continue;
+function quoteWindowsArg(value) {
+  if (!/[\s"]/u.test(value)) return value;
+  return `"${value.replace(/"/g, '\\"')}"`;
+}
+
+function spawnExecutable(executable, args, options) {
+  if (process.platform === 'win32' && /\.(cmd|bat)$/iu.test(executable)) {
+    const command = [quoteWindowsArg(executable), ...args.map(quoteWindowsArg)].join(' ');
+    return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command], {
+      ...options,
+      windowsHide: true,
+    });
+  }
+
+  return spawn(executable, args, {
+    ...options,
+    windowsHide: true,
+  });
+}
+
+function createJsonRpcConnection(child) {
+  let nextId = 1;
+  const pending = new Map();
+  const stdout = createInterface({ input: child.stdout, crlfDelay: Infinity });
+  const stderr = createInterface({ input: child.stderr, crlfDelay: Infinity });
+  let notificationHandler = () => {};
+  let requestHandler = () => Promise.resolve(undefined);
+  let disposed = false;
+
+  const exitPromise = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', (code, signal) => resolve({ code, signal }));
+  });
+
+  const cleanupPending = (error) => {
+    for (const { reject } of pending.values()) {
+      reject(error);
+    }
+    pending.clear();
+  };
+
+  stdout.on('line', (line) => {
+    if (!line.trim()) return;
+
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      return;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(message, 'id') && !Object.prototype.hasOwnProperty.call(message, 'method')) {
+      const pendingRequest = pending.get(message.id);
+      if (!pendingRequest) return;
+      pending.delete(message.id);
+      if (message.error) {
+        pendingRequest.reject(new Error(message.error.message || stringifyBrief(message.error)));
+      } else {
+        pendingRequest.resolve(message.result);
       }
+      return;
+    }
 
-      if (message.type === 'assistant') {
-        sawTextDelta = emitAssistantParts(requestId, message, !sawTextDelta) || sawTextDelta;
-        continue;
+    if (typeof message.method !== 'string') return;
+
+    if (Object.prototype.hasOwnProperty.call(message, 'id')) {
+      Promise.resolve(requestHandler(message))
+        .then((result) => {
+          if (disposed) return;
+          child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result: result ?? {} })}\n`);
+        })
+        .catch((error) => {
+          if (disposed) return;
+          child.stdin.write(`${JSON.stringify({
+            jsonrpc: '2.0',
+            id: message.id,
+            error: { code: -32000, message: error instanceof Error ? error.message : String(error) },
+          })}\n`);
+        });
+      return;
+    }
+
+    notificationHandler(message);
+  });
+
+  stderr.on('line', (line) => {
+    process.stderr.write(`${line}\n`);
+  });
+
+  exitPromise.then(({ code, signal }) => {
+    cleanupPending(new Error(`Codex app-server exited (${signal || code || 0})`));
+  }).catch((error) => {
+    cleanupPending(error instanceof Error ? error : new Error(String(error)));
+  });
+
+  return {
+    request(method, params) {
+      const id = nextId++;
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
+      return new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject });
+      });
+    },
+    setHandlers({ onNotification, onRequest }) {
+      notificationHandler = onNotification;
+      requestHandler = onRequest;
+    },
+    async shutdown() {
+      try {
+        await Promise.race([
+          this.request('shutdown', {}),
+          new Promise((resolve) => setTimeout(resolve, 1000)),
+        ]);
+      } catch {}
+    },
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      stdout.close();
+      stderr.close();
+      child.stdin.end();
+      if (!child.killed) {
+        child.kill();
       }
+    },
+    waitForExit() {
+      return exitPromise;
+    },
+  };
+}
 
-      if (message.type === 'result') {
-        if (!sawTextDelta && !message.is_error && typeof message.result === 'string') {
-          emit({ type: 'delta', requestId, text: message.result });
+function buildCodexThreadParams(settings, workspaceDir) {
+  const params = {
+    cwd: workspaceDir,
+    approvalPolicy: settings.approvalPolicy || 'on-request',
+    sandbox: 'workspace-write',
+    personality: 'pragmatic',
+  };
+
+  const model = asOptionalString(settings.model);
+  if (model) params.model = model;
+
+  return params;
+}
+
+function buildCodexSandboxPolicy(workspaceDir, additionalDirectories) {
+  const writableRoots = [...new Set([normalize(workspaceDir), ...additionalDirectories.map((dir) => normalize(dir))])];
+  return {
+    type: 'workspaceWrite',
+    writableRoots,
+    networkAccess: true,
+    excludeTmpdirEnvVar: false,
+    excludeSlashTmp: false,
+  };
+}
+
+function summarizeFileChanges(changes) {
+  if (!Array.isArray(changes) || changes.length === 0) {
+    return '无文件变更明细';
+  }
+  return changes
+    .slice(0, 12)
+    .map((change) => {
+      const path = asOptionalString(change?.path) ?? asOptionalString(change?.newPath) ?? '未知路径';
+      const kind = asOptionalString(change?.kind) ?? 'change';
+      return `${kind}: ${path}`;
+    })
+    .join('\n');
+}
+
+function codexItemPart(item) {
+  if (!item || typeof item !== 'object') return null;
+
+  switch (item.type) {
+    case 'plan':
+      return { kind: 'plan', title: '计划', text: item.text || '正在生成计划' };
+    case 'commandExecution':
+      return { kind: 'tool', title: '命令执行', text: item.command || '执行命令' };
+    case 'fileChange':
+      return { kind: 'tool', title: '文件修改', text: summarizeFileChanges(item.changes) };
+    case 'mcpToolCall':
+      return { kind: 'mcp', title: `MCP ${item.server} / ${item.tool}`, text: stringifyBrief(item.arguments) };
+    case 'dynamicToolCall': {
+      const namespace = asOptionalString(item.namespace);
+      return {
+        kind: 'tool',
+        title: `工具 ${namespace ? `${namespace} / ` : ''}${item.tool || 'dynamicToolCall'}`,
+        text: stringifyBrief(item.arguments),
+      };
+    }
+    case 'webSearch':
+      return { kind: 'tool', title: 'Web 搜索', text: item.query || '搜索' };
+    case 'collabAgentToolCall':
+      return { kind: 'tool', title: `多代理 ${item.tool || ''}`.trim(), text: item.prompt || '协作代理调用' };
+    case 'enteredReviewMode':
+      return { kind: 'status', title: 'Review', text: item.review || '进入 review 模式' };
+    case 'exitedReviewMode':
+      return { kind: 'status', title: 'Review', text: item.review || '退出 review 模式' };
+    default:
+      return null;
+  }
+}
+
+async function askCodexPermissionQuestion(requestId, toolName, title, description) {
+  const questionId = randomUUID();
+  const question = {
+    id: questionId,
+    requestId: activeRequestId,
+    toolName,
+    toolUseId: questionId,
+    kind: 'permission',
+    title,
+    ...(description ? { description } : {}),
+    questions: [{
+      question: title.endsWith('？') || title.endsWith('?') ? title : `${title}？`,
+      header: toolName,
+      options: [
+        { label: '允许', description: description || '允许继续执行。' },
+        { label: '拒绝', description: '拒绝这次请求。' },
+      ],
+      multiSelect: false,
+    }],
+  };
+
+  emitToolQuestion(requestId, question);
+  const response = await waitForToolResponse(questionId);
+  const answers = normalizeAnswerArray(response?.answers?.[question.questions[0].question]);
+  return answers.some((item) => item.includes('允许'));
+}
+
+async function handleCodexToolQuestion(requestId, params) {
+  const questionId = randomUUID();
+  const questions = Array.isArray(params.questions)
+    ? params.questions.slice(0, 4).map((question, index) => ({
+        question: asOptionalString(question?.question) ?? `请选择第 ${index + 1} 项`,
+        header: asOptionalString(question?.header) ?? `问题 ${index + 1}`,
+        options: Array.isArray(question?.options) && question.options.length > 0
+          ? question.options.map((option) => ({
+              label: asOptionalString(option?.label) ?? '确认',
+              description: asOptionalString(option?.description) ?? asOptionalString(option?.label) ?? '确认',
+            }))
+          : [
+              { label: '确认', description: '使用默认确认。' },
+              { label: '取消', description: '不继续此选择。' },
+            ],
+        multiSelect: false,
+      }))
+    : [];
+
+  const question = {
+    id: questionId,
+    requestId,
+    toolName: 'RequestUserInput',
+    toolUseId: questionId,
+    kind: 'ask-user-question',
+    title: 'Codex 需要你的输入',
+    questions,
+  };
+
+  emitToolQuestion(requestId, question);
+  const response = await waitForToolResponse(questionId);
+  const answers = {};
+  for (let index = 0; index < questions.length; index += 1) {
+    const prompt = questions[index];
+    const original = params.questions[index];
+    answers[original.id] = {
+      answers: normalizeAnswerArray(response?.answers?.[prompt.question]),
+    };
+  }
+  return { answers };
+}
+
+async function runCodex(input) {
+  const settings = input.settings ?? {};
+  const codexSettings = settings.codex ?? {};
+  const providerState = input.providerState ?? {};
+  const requestId = input.requestId;
+  const attachments = normalizeAttachments(input.attachments);
+  activeRequestId = requestId;
+
+  const workspaceDir = asOptionalString(input.paths?.workspaceDir) ?? process.cwd();
+  const additionalDirectories = attachmentDirectories(attachments);
+  const executable = asOptionalString(codexSettings.pathToCodexExecutable) ?? findCodexExecutable();
+  if (!executable) {
+    throw new Error('Cannot find Codex executable');
+  }
+
+  const customEnv = parseCustomEnv(codexSettings.customEnvText);
+  const child = spawnExecutable(executable, ['app-server'], {
+    cwd: workspaceDir,
+    env: {
+      ...process.env,
+      ...customEnv,
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const rpc = createJsonRpcConnection(child);
+
+  let currentThreadId = asOptionalString(providerState.codexThreadId);
+  let completed = false;
+  let settleDone;
+  let settleError;
+  const donePromise = new Promise((resolve, reject) => {
+    settleDone = resolve;
+    settleError = reject;
+  });
+
+  rpc.setHandlers({
+    onNotification(message) {
+      switch (message.method) {
+        case 'item/agentMessage/delta':
+          emit({ type: 'delta', requestId, text: message.params?.delta || '' });
+          return;
+        case 'item/reasoning/textDelta':
+        case 'item/reasoning/summaryTextDelta':
+          emitPart(requestId, 'thinking', message.params?.delta || '', '思考');
+          return;
+        case 'item/plan/delta':
+          emitPart(requestId, 'plan', message.params?.delta || '', '计划');
+          return;
+        case 'item/started': {
+          const part = codexItemPart(message.params?.item);
+          if (part) {
+            emitPart(requestId, part.kind, part.text, part.title);
+          }
+          return;
         }
-
-        if (message.is_error) {
-          const detail = Array.isArray(message.errors) ? message.errors.join('\n') : 'Claude request failed';
-          emit({ type: 'error', requestId, error: detail });
-        } else {
+        case 'warning':
+        case 'guardianWarning':
+        case 'configWarning':
+          emitPart(requestId, 'status', message.params?.message || stringifyBrief(message.params), '提示');
+          return;
+        case 'error':
+          if (!completed) {
+            completed = true;
+            settleError(new Error(message.params?.message || 'Codex request failed'));
+          }
+          return;
+        case 'turn/completed': {
+          if (completed) return;
+          const turn = message.params?.turn;
+          if (turn?.status === 'failed') {
+            completed = true;
+            settleError(new Error(turn?.error?.message || 'Codex request failed'));
+            return;
+          }
+          if (turn?.status === 'interrupted') {
+            completed = true;
+            emit({ type: 'cancelled', requestId });
+            settleDone();
+            return;
+          }
+          completed = true;
           emit({
             type: 'done',
             requestId,
-            providerState: lastSessionId ? { claudeSessionId: lastSessionId } : providerState,
+            providerState: currentThreadId ? { codexThreadId: currentThreadId } : providerState,
           });
+          settleDone();
+          return;
         }
-        continue;
+        default:
+      }
+    },
+    async onRequest(message) {
+      if (message.method === 'item/commandExecution/requestApproval') {
+        const params = message.params ?? {};
+        const description = [
+          asOptionalString(params.reason),
+          asOptionalString(params.command) ? `命令: ${params.command}` : '',
+          asOptionalString(params.cwd) ? `目录: ${params.cwd}` : '',
+        ].filter(Boolean).join('\n');
+        const allowed = await askCodexPermissionQuestion(
+          requestId,
+          'CommandExecution',
+          'Codex 想执行命令',
+          description,
+        );
+        return { decision: allowed ? 'accept' : 'decline' };
       }
 
-      emitSdkStatusPart(requestId, message);
+      if (message.method === 'item/fileChange/requestApproval') {
+        const params = message.params ?? {};
+        const allowed = await askCodexPermissionQuestion(
+          requestId,
+          'FileChange',
+          'Codex 想应用文件修改',
+          asOptionalString(params.reason) ?? '将把本轮建议的文件修改写入工作区。',
+        );
+        return { decision: allowed ? 'accept' : 'decline' };
+      }
+
+      if (message.method === 'item/tool/requestUserInput') {
+        return handleCodexToolQuestion(requestId, message.params ?? {});
+      }
+
+      if (message.method === 'item/permissions/requestApproval') {
+        const params = message.params ?? {};
+        const allowed = await askCodexPermissionQuestion(
+          requestId,
+          'Permissions',
+          'Codex 想申请额外权限',
+          asOptionalString(params.reason) ?? '需要额外的文件或网络权限。',
+        );
+        return allowed
+          ? { permissions: params.permissions ?? {}, scope: 'turn' }
+          : { permissions: {}, scope: 'turn' };
+      }
+
+      throw new Error(`Unsupported Codex server request: ${message.method}`);
+    },
+  });
+
+  emit({ type: 'status', requestId, status: 'started' });
+
+  try {
+    await rpc.request('initialize', {
+      clientInfo: { name: 'wimipet', version: '0.1.0' },
+      capabilities: { experimentalApi: true },
+    });
+
+    const threadParams = buildCodexThreadParams(codexSettings, workspaceDir);
+    if (currentThreadId) {
+      const resume = await rpc.request('thread/resume', {
+        threadId: currentThreadId,
+        ...threadParams,
+        excludeTurns: true,
+      });
+      currentThreadId = resume?.thread?.id || currentThreadId;
+    } else {
+      const started = await rpc.request('thread/start', threadParams);
+      currentThreadId = started?.thread?.id;
+    }
+
+    if (!currentThreadId) {
+      throw new Error('Codex did not return a thread id');
+    }
+
+    emit({
+      type: 'session',
+      requestId,
+      providerState: { codexThreadId: currentThreadId },
+    });
+
+    await rpc.request('turn/start', {
+      threadId: currentThreadId,
+      input: [{ type: 'text', text: buildPrompt(input, attachments) }],
+      cwd: workspaceDir,
+      approvalPolicy: codexSettings.approvalPolicy || 'on-request',
+      sandboxPolicy: buildCodexSandboxPolicy(workspaceDir, additionalDirectories),
+      ...(asOptionalString(codexSettings.model) ? { model: codexSettings.model.trim() } : {}),
+      effort: codexSettings.reasoningEffort || 'medium',
+      personality: 'pragmatic',
+    });
+
+    await Promise.race([
+      donePromise,
+      rpc.waitForExit().then(({ code, signal }) => {
+        if (!completed) {
+          throw new Error(`Codex app-server exited unexpectedly (${signal || code || 0})`);
+        }
+      }),
+    ]);
+  } finally {
+    await rpc.shutdown();
+    await rpc.dispose();
+  }
+}
+
+async function main() {
+  const input = await initialPayloadPromise;
+  const providerId = parseProviderId(input);
+
+  try {
+    if (providerId === 'codex') {
+      await runCodex(input);
+    } else {
+      await runClaude(input);
     }
   } finally {
     closeInputBridge();

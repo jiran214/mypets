@@ -1,4 +1,4 @@
-const STORAGE_KEY = 'mypets-pet-positions-v1';
+const STORAGE_KEY = 'wimipet-pet-positions-v1';
 
 export interface PetPosition {
   x: number;

@@ -13,8 +13,11 @@ export async function loadPet(folder: string): Promise<PetMeta> {
   return invoke<PetMeta>('load_pet', { folder });
 }
 
-export async function updatePetDisplayName(folder: string, displayName: string): Promise<PetMeta> {
-  return invoke<PetMeta>('update_pet_display_name', { folder, displayName });
+export async function updatePetOverrides(
+  folder: string,
+  overrides: { displayName?: string | null; description?: string | null; spritesheetPath?: string | null },
+): Promise<PetMeta> {
+  return invoke<PetMeta>('update_pet_overrides', { folder, ...overrides });
 }
 
 export async function loadSpritesheet(path: string): Promise<string> {
