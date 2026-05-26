@@ -1,18 +1,18 @@
 import { invoke } from '@tauri-apps/api/core';
 import {
   answerAiToolQuestion,
+  cancelAiChatMessage,
   listenToAiChatEvents,
   loadAiState,
   sendAiChatMessage,
 } from './ai-api';
 import {
-  conversationStorageKey,
-  type StoredConversation,
-} from './chat-runtime';
+  appendPart,
+  persistConversation,
+} from '@/lib/ai-utils';
 import type {
   AiChatEvent,
   ChatMessage,
-  ChatMessagePart,
   Conversation,
   ProviderState,
   ToolQuestionAnswerPayload,
@@ -300,6 +300,8 @@ export async function runAutoTaskConversation(
     resolveRun(finish('failed', event.error));
   });
 
+  const AUTO_TASK_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
   try {
     await sendAiChatMessage({
       requestId,
@@ -312,7 +314,15 @@ export async function runAutoTaskConversation(
       prompt: task.prompt,
       providerState,
     });
-    return await runPromise;
+    const timeoutPromise = new Promise<AutoTaskRunResult>((resolve) => {
+      setTimeout(() => {
+        if (!completed) {
+          cancelAiChatMessage(requestId).catch(() => {});
+          resolve(finish('failed', '自动任务执行超时。'));
+        }
+      }, AUTO_TASK_TIMEOUT_MS);
+    });
+    return await Promise.race([runPromise, timeoutPromise]);
   } catch (error) {
     return finish('failed', error instanceof Error ? error.message : String(error));
   } finally {
@@ -373,27 +383,6 @@ function automaticQuestionResponse(question: ToolQuestionRequest): ToolQuestionA
   return { answers };
 }
 
-function persistConversation(workspaceFolder: string, title: string, conversation: Conversation): void {
-  try {
-    const stored: StoredConversation = { title, conversation };
-    localStorage.setItem(conversationStorageKey(workspaceFolder, conversation.id), JSON.stringify(stored));
-  } catch (error) {
-    console.warn('Failed to save automatic task conversation:', error);
-  }
-}
-
-function appendPart(message: ChatMessage, part: Omit<ChatMessagePart, 'id'>): void {
-  const last = message.parts[message.parts.length - 1];
-  if (last && last.kind === part.kind && last.title === part.title && (part.kind === 'text' || part.kind === 'thinking')) {
-    last.text += part.text;
-    return;
-  }
-
-  message.parts.push({
-    ...part,
-    id: crypto.randomUUID(),
-  });
-}
 
 function normalizeSchedule(schedule?: Partial<AutoTaskSchedule>): AutoTaskSchedule {
   const kind = schedule?.kind === 'daily' || schedule?.kind === 'weekly' || schedule?.kind === 'interval'

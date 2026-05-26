@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { hasTauriRuntime } from '@/lib/tauri-utils';
 import type {
   AiChatEvent,
   AiChatRequest,
@@ -74,8 +75,4 @@ export async function listenToAiChatEvents(handler: (event: AiChatEvent) => void
     console.warn('AI chat events are unavailable outside Tauri:', error);
     return () => {};
   }
-}
-
-function hasTauriRuntime(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }

@@ -31,21 +31,23 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 
 - **前端 TypeScript** — Canvas 渲染 + DOM 着陆页 + React 聊天 UI
 - **Rust (src-tauri/)** — 文件系统访问、AI 状态管理、启动 Node 子进程
-- **Node (src-node/claude-runner.mjs)** — 通过 `@anthropic-ai/claude-agent-sdk` 的 `query()` 与 Claude 交互，stdout 输出 JSON 行事件
+- **Node (src-node/claude-runner.mjs)** — 多 AI provider 调度器，支持 `pi`（默认）、`claude`、`codex` 三种 provider，stdin 接收 JSON payload，stdout 输出 JSON 行事件
 
 ### Tauri IPC 命令
 
 前端通过 `invoke()` 调用 Rust 命令（注册在 [lib.rs](src-tauri/src/lib.rs)）：
 
-**AI 命令（src-tauri/src/ai.rs）：**
+**AI 命令（src-tauri/src/ai/）：**
 - `load_ai_state` — 加载工作空间的 AI 设置和路径
 - `list_ai_sessions` — 列出对话会话元数据文件
 - `save_ai_settings` — 保存 AI 设置到 `.wimipet/settings.json`
+- `load_pi_provider_auth` / `save_pi_provider_auth` — Pi provider 认证管理
+- `list_auto_tasks` / `save_auto_task` / `delete_auto_task` — 定时任务 CRUD
 - `list_skills` — 列出可用的 skill 文件（全局 + 工作空间级别）
 - `save_dropped_chat_file` — 保存拖入聊天的文件到工作空间
-- `send_ai_chat_message` — 启动 Claude 子进程，通过 Tauri event 系统流式返回结果
+- `send_ai_chat_message` — 启动 AI 子进程，通过 Tauri event 系统流式返回结果
 - `cancel_ai_chat_message` — 取消正在进行的 AI 请求（向子进程发送 SIGINT）
-- `answer_ai_tool_question` — 回答 Claude 的工具调用问题（权限确认或多选问答）
+- `answer_ai_tool_question` — 回答 AI 的工具调用问题（权限确认或多选问答）
 
 **宠物命令（src-tauri/src/pet.rs）：**
 - `load_pet` — 读取并校验 pet 文件夹中的 `pet.json`
@@ -62,7 +64,7 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 
 1. 前端 `ChatRuntime.send()` → `invoke('send_ai_chat_message', ...)`
 2. Rust 构造 JSON payload，`Command::new("node")` 启动 [claude-runner.mjs](src-node/claude-runner.mjs)
-3. Node 进程通过 stdin 接收 payload，调用 `query({ prompt, options })` 流式查询 Claude
+3. Node 进程通过 stdin 接收 payload，根据 provider 类型分发到对应 runner（`run-claude.mjs`、`run-pi.mjs`、`run-codex.mjs`）
 4. Node 将每个 stream event 写为 JSON line 到 stdout
 5. Rust 读取 stdout，通过 `app.emit("ai-chat-event", event)` 转发到前端
 6. 前端 `listenToAiChatEvents()` 监听事件，`ChatRuntime` 更新状态并通知 UI
@@ -73,6 +75,12 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 - `cancelled` 事件在用户中断请求后触发
 
 AI 设置存储在每个工作空间的 `.wimipet/settings.json`，会话元数据在 `.wimipet/sessions/`，日志在 `.wimipet/logs/ai.log`。
+
+Rust AI 模块结构（`src-tauri/src/ai/`）：
+- `mod.rs` — 所有 `#[tauri::command]` 定义和核心逻辑
+- `ai_process.rs` — 子进程生命周期：spawn、PID 跟踪、SIGINT/taskkill 取消
+- `ai_storage.rs` — 存储路径解析、设置持久化、日志
+- `ai_skills.rs` — 从文件系统发现 skill（SKILL.md 解析）
 
 ### 前端渲染
 

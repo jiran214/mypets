@@ -2,6 +2,8 @@ import { getCurrentWindow, LogicalSize, PhysicalPosition } from '@tauri-apps/api
 import { open } from '@tauri-apps/plugin-dialog';
 import { createRoot, type Root } from 'react-dom/client';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { hasTauriRuntime, safeCurrentWindow } from '@/lib/tauri-utils';
+import { parseToolQuestionPartData } from '@/lib/ai-utils';
 import {
   Check,
   CircleQuestionMark,
@@ -944,30 +946,6 @@ function ToolPartView({ part, streaming }: { part: ChatMessagePart; streaming: b
   );
 }
 
-function parseToolQuestionPartData(text: string): ToolQuestionPartData | null {
-  try {
-    const value = JSON.parse(text) as Partial<ToolQuestionPartData>;
-    if (
-      typeof value.id !== 'string'
-      || typeof value.requestId !== 'string'
-      || typeof value.toolName !== 'string'
-      || typeof value.toolUseId !== 'string'
-      || (value.kind !== 'ask-user-question' && value.kind !== 'permission')
-      || !Array.isArray(value.questions)
-      || !isToolQuestionStatus(value.status)
-    ) {
-      return null;
-    }
-
-    return value as ToolQuestionPartData;
-  } catch {
-    return null;
-  }
-}
-
-function isToolQuestionStatus(value: unknown): value is ToolQuestionPartData['status'] {
-  return value === 'pending' || value === 'submitting' || value === 'answered' || value === 'error';
-}
 
 function questionAnswerValues(
   question: ToolQuestionItem,
@@ -1010,7 +988,8 @@ function PathText({ value }: { value: string }): ReactNode {
 }
 
 export function setupChatBubble(stage: HTMLElement, canvas: HTMLCanvasElement): ChatBubbleController {
-  const bubble = document.getElementById('chat-bubble') as HTMLElement;
+  const bubble = document.getElementById('chat-bubble');
+  if (!bubble) throw new Error('Chat bubble element not found');
   const win = safeCurrentWindow();
   let open = false;
   let pointerStart: { x: number; y: number } | null = null;
@@ -1113,19 +1092,6 @@ export function setupChatBubble(stage: HTMLElement, canvas: HTMLCanvasElement): 
     resolvePetWindowSize,
     close: () => setOpen(false),
   };
-}
-
-function safeCurrentWindow(): ReturnType<typeof getCurrentWindow> | null {
-  try {
-    return getCurrentWindow();
-  } catch (error) {
-    console.warn('Tauri window controls are unavailable outside Tauri:', error);
-    return null;
-  }
-}
-
-function hasTauriRuntime(): boolean {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
 function chatAttachmentData(attachment: ChatAttachment): AttachmentData {

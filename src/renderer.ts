@@ -65,6 +65,16 @@ export class SpriteRenderer {
     requestAnimationFrame((t) => this.tick(t));
   }
 
+  stop(): void {
+    this.running = false;
+  }
+
+  dispose(): void {
+    this.stop();
+    this.image = null;
+    this.cycleCallbacks.clear();
+  }
+
   private tick(timestamp: number): void {
     if (!this.running) return;
     const dt = timestamp - this.lastTimestamp;

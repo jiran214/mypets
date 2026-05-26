@@ -8,6 +8,12 @@ import { ChatRuntime } from './chat-runtime';
 import { mountChatUi, setupChatBubble } from './chat-ui';
 import { savePetPosition } from './pet-position';
 import { loadPetScale, savePetScale } from './pet-scale';
+
+function requireElement<T extends HTMLElement>(id: string): T {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`Element #${id} not found`);
+  return el as T;
+}
 import type { PetMeta } from './types';
 
 interface PetSettingsEvent {
@@ -185,12 +191,9 @@ export async function initPetWindow(folder: string): Promise<void> {
     return;
   }
 
-  const canvas = document.getElementById('pet-canvas') as HTMLCanvasElement;
-  const stage = document.getElementById('pet-stage') as HTMLDivElement;
-  const resizeHandle = document.getElementById('pet-resize-handle') as HTMLButtonElement;
-  if (!canvas) throw new Error('Canvas element not found');
-  if (!stage) throw new Error('Pet stage element not found');
-  if (!resizeHandle) throw new Error('Resize handle element not found');
+  const canvas = requireElement<HTMLCanvasElement>('pet-canvas');
+  const stage = requireElement<HTMLDivElement>('pet-stage');
+  const resizeHandle = requireElement<HTMLButtonElement>('pet-resize-handle');
 
   const renderer = new SpriteRenderer(canvas);
   const chatBubble = setupChatBubble(stage, canvas);

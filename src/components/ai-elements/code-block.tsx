@@ -129,17 +129,27 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
   code: "",
 });
 
-// Highlighter cache (singleton per language)
+// Highlighter cache (singleton per language, LRU capped)
+const HIGHLIGHTER_CACHE_LIMIT = 20;
 const highlighterCache = new Map<
   string,
   Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>
 >();
 
-// Token cache
+// Token cache (LRU capped)
+const TOKENS_CACHE_LIMIT = 200;
 const tokensCache = new Map<string, TokenizedCode>();
 
 // Subscribers for async token updates
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>();
+
+function lruSet<K, V>(map: Map<K, V>, key: K, value: V, limit: number): void {
+  if (map.size >= limit && !map.has(key)) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+  map.set(key, value);
+}
 
 const getTokensCacheKey = (code: string, language: BundledLanguage) => {
   const start = code.slice(0, 100);
@@ -160,7 +170,7 @@ const getHighlighter = (
     themes: ["github-light", "github-dark"],
   });
 
-  highlighterCache.set(language, highlighterPromise);
+  lruSet(highlighterCache, language, highlighterPromise, HIGHLIGHTER_CACHE_LIMIT);
   return highlighterPromise;
 };
 
@@ -179,6 +189,20 @@ const createRawTokens = (code: string): TokenizedCode => ({
         ]
   ),
 });
+
+// Remove a specific callback from the subscribers map
+export const removeHighlightCallback = (
+  code: string,
+  language: BundledLanguage,
+  callback: (result: TokenizedCode) => void,
+): void => {
+  const tokensCacheKey = getTokensCacheKey(code, language);
+  const subs = subscribers.get(tokensCacheKey);
+  if (subs) {
+    subs.delete(callback);
+    if (subs.size === 0) subscribers.delete(tokensCacheKey);
+  }
+};
 
 // Synchronous highlight with callback for async results
 export const highlightCode = (
@@ -225,7 +249,7 @@ export const highlightCode = (
       };
 
       // Cache the result
-      tokensCache.set(tokensCacheKey, tokenized);
+      lruSet(tokensCache, tokensCacheKey, tokenized, TOKENS_CACHE_LIMIT);
 
       // Notify all subscribers
       const subs = subscribers.get(tokensCacheKey);
@@ -405,14 +429,16 @@ export const CodeBlockContent = ({
   useEffect(() => {
     let cancelled = false;
 
-    highlightCode(code, language, (result) => {
+    const callback = (result: TokenizedCode) => {
       if (!cancelled) {
         setAsyncTokens(result);
       }
-    });
+    };
+    highlightCode(code, language, callback);
 
     return () => {
       cancelled = true;
+      removeHighlightCallback(code, language, callback);
     };
   }, [code, language]);
 

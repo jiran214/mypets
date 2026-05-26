@@ -1,4 +1,5 @@
-import { getCurrentWindow, LogicalSize, PhysicalPosition } from '@tauri-apps/api/window';
+import { LogicalSize, PhysicalPosition } from '@tauri-apps/api/window';
+import { safeCurrentWindow } from '@/lib/tauri-utils';
 import type { SpriteRenderer } from './renderer';
 import type { AnimationState } from './types';
 
@@ -310,15 +311,6 @@ function setupResizeHandle(
       return scale;
     },
   };
-}
-
-function safeCurrentWindow(): ReturnType<typeof getCurrentWindow> | null {
-  try {
-    return getCurrentWindow();
-  } catch (error) {
-    console.warn('Tauri window controls are unavailable outside Tauri:', error);
-    return null;
-  }
 }
 
 export function setupInteractions(

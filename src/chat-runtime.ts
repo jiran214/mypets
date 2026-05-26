@@ -20,13 +20,17 @@ import type {
   ToolQuestionPartData,
   ToolQuestionRequest,
 } from './ai-types';
+import {
+  appendPart as appendPartShared,
+  conversationStorageKey,
+  parseToolQuestionPartData as parseToolQuestionPartDataShared,
+  type StoredConversation,
+} from '@/lib/ai-utils';
 
 type Listener = () => void;
 
-export interface StoredConversation {
-  title: string;
-  conversation: Conversation;
-}
+export type { StoredConversation } from '@/lib/ai-utils';
+export { conversationStorageKey } from '@/lib/ai-utils';
 
 export class ChatRuntime {
   private aiState: AiState | null = null;
@@ -44,6 +48,7 @@ export class ChatRuntime {
   private statusText = '';
   private cancellingRequestId: string | null = null;
   private listeners = new Set<Listener>();
+  private _saveTimer: ReturnType<typeof setTimeout> | null = null;
 
   async init(): Promise<void> {
     await listenToAiChatEvents((event) => this.handleEvent(event));
@@ -365,16 +370,7 @@ export class ChatRuntime {
   }
 
   private appendPart(message: ChatMessage, part: Omit<ChatMessagePart, 'id'>): void {
-    const last = message.parts[message.parts.length - 1];
-    if (last && last.kind === part.kind && last.title === part.title && (part.kind === 'text' || part.kind === 'thinking')) {
-      last.text += part.text;
-      return;
-    }
-
-    message.parts.push({
-      ...part,
-      id: crypto.randomUUID(),
-    });
+    appendPartShared(message, part);
   }
 
   private updateToolQuestionPart(
@@ -396,6 +392,15 @@ export class ChatRuntime {
     return null;
   }
 
+  private resetAfterFinish(): void {
+    this.currentRequestId = null;
+    this.currentAssistantId = null;
+    this.cancellingRequestId = null;
+    this.statusText = '';
+    this.flush();
+    this.notify();
+  }
+
   private finish(): void {
     const assistant = this.currentAssistant();
     if (assistant) {
@@ -408,12 +413,7 @@ export class ChatRuntime {
         });
       }
     }
-    this.currentRequestId = null;
-    this.currentAssistantId = null;
-    this.cancellingRequestId = null;
-    this.statusText = '';
-    this.saveCurrentConversation();
-    this.notify();
+    this.resetAfterFinish();
     void this.refreshSessions().catch((error) => {
       console.warn('Failed to refresh AI sessions:', error);
     });
@@ -430,12 +430,7 @@ export class ChatRuntime {
         text: error || `${this.providerLabel()} 请求失败。`,
       }];
     }
-    this.currentRequestId = null;
-    this.currentAssistantId = null;
-    this.cancellingRequestId = null;
-    this.statusText = '';
-    this.saveCurrentConversation();
-    this.notify();
+    this.resetAfterFinish();
   }
 
   private finishCancelled(): void {
@@ -450,12 +445,7 @@ export class ChatRuntime {
         });
       }
     }
-    this.currentRequestId = null;
-    this.currentAssistantId = null;
-    this.cancellingRequestId = null;
-    this.statusText = '';
-    this.saveCurrentConversation();
-    this.notify();
+    this.resetAfterFinish();
   }
 
   private notify(): void {
@@ -476,6 +466,23 @@ export class ChatRuntime {
   }
 
   private saveCurrentConversation(): void {
+    if (this._saveTimer) clearTimeout(this._saveTimer);
+    this._saveTimer = setTimeout(() => {
+      this._saveTimer = null;
+      this.persistNow();
+    }, 500);
+  }
+
+  /** Immediately persist conversation to localStorage (bypasses debounce). */
+  private flush(): void {
+    if (this._saveTimer) {
+      clearTimeout(this._saveTimer);
+      this._saveTimer = null;
+    }
+    this.persistNow();
+  }
+
+  private persistNow(): void {
     if (!this.workspaceFolder || this.conversation.messages.length === 0) return;
 
     try {
@@ -522,38 +529,11 @@ function createTitle(prompt: string): string {
   return compact.length > 28 ? `${compact.slice(0, 28)}...` : compact;
 }
 
-export function conversationStorageKey(workspaceFolder: string, conversationId: string): string {
-  return `wimipet-chat-conversation:${workspaceFolder}:${conversationId}`;
-}
-
 function questionTitle(question: Pick<ToolQuestionRequest, 'kind' | 'toolName'>): string {
   return question.kind === 'permission' ? `确认 ${question.toolName}` : '需要你的选择';
 }
 
-function parseToolQuestionPartData(text: string): ToolQuestionPartData | null {
-  try {
-    const value = JSON.parse(text) as Partial<ToolQuestionPartData>;
-    if (
-      typeof value.id !== 'string'
-      || typeof value.requestId !== 'string'
-      || typeof value.toolName !== 'string'
-      || typeof value.toolUseId !== 'string'
-      || (value.kind !== 'ask-user-question' && value.kind !== 'permission')
-      || !Array.isArray(value.questions)
-      || !isToolQuestionStatus(value.status)
-    ) {
-      return null;
-    }
-
-    return value as ToolQuestionPartData;
-  } catch {
-    return null;
-  }
-}
-
-function isToolQuestionStatus(value: unknown): value is ToolQuestionPartData['status'] {
-  return value === 'pending' || value === 'submitting' || value === 'answered' || value === 'error';
-}
+const parseToolQuestionPartData = parseToolQuestionPartDataShared;
 
 function isConversation(value: unknown): value is Conversation {
   if (!value || typeof value !== 'object') return false;

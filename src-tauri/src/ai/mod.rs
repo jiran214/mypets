@@ -1,26 +1,30 @@
+mod ai_process;
+mod ai_skills;
+mod ai_storage;
+
+use ai_process::{
+    active_ai_process_pid, mark_ai_request_cancelled, register_ai_process, remove_ai_process,
+    remove_tool_input_writer, take_ai_request_cancelled, terminate_process_tree,
+    tool_input_writers,
+};
+use ai_skills::{collect_all_skills, default_provider_id, home_dir, SkillInfo};
+use ai_storage::{
+    append_ai_log, path_to_string, public_paths, resolve_storage, now_ms,
+    ai_settings_path, auto_tasks_path, StoragePaths,
+};
+
 use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::{HashMap, HashSet},
-    fs::{self, OpenOptions},
+    fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    process::{ChildStdin, Command, Stdio},
-    sync::{Arc, Mutex, OnceLock},
+    process::{Command, Stdio},
+    sync::{Arc, Mutex},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillInfo {
-    pub name: String,
-    pub description: String,
-    pub scope: String,
-    pub path: String,
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -191,21 +195,6 @@ pub struct AiToolQuestionAnswerRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AiSessionMeta {
-    id: String,
-    provider_id: String,
-    provider_state: Value,
-    title: String,
-    created_at: u64,
-    updated_at: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    auto_task_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    auto_task_name: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AiSessionSummary {
     id: String,
     provider_id: String,
@@ -213,7 +202,9 @@ pub struct AiSessionSummary {
     title: String,
     created_at: u64,
     updated_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     auto_task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     auto_task_name: Option<String>,
 }
 
@@ -265,96 +256,6 @@ pub struct AutoTask {
     pub current_conversation_id: String,
 }
 
-#[derive(Clone)]
-struct StoragePaths {
-    workspace_dir: PathBuf,
-    wimipet_dir: PathBuf,
-    claude_dir: PathBuf,
-    sessions_dir: PathBuf,
-    log_file: PathBuf,
-}
-
-type ToolInputWriter = Arc<Mutex<ChildStdin>>;
-
-fn tool_input_writers() -> &'static Mutex<HashMap<String, ToolInputWriter>> {
-    static WRITERS: OnceLock<Mutex<HashMap<String, ToolInputWriter>>> = OnceLock::new();
-    WRITERS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn active_ai_processes() -> &'static Mutex<HashMap<String, u32>> {
-    static PROCESSES: OnceLock<Mutex<HashMap<String, u32>>> = OnceLock::new();
-    PROCESSES.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn cancelled_ai_requests() -> &'static Mutex<HashSet<String>> {
-    static CANCELLED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    CANCELLED.get_or_init(|| Mutex::new(HashSet::new()))
-}
-
-fn remove_tool_input_writer(request_id: &str) {
-    if let Ok(mut writers) = tool_input_writers().lock() {
-        writers.remove(request_id);
-    }
-}
-
-fn register_ai_process(request_id: &str, pid: u32) {
-    if let Ok(mut processes) = active_ai_processes().lock() {
-        processes.insert(request_id.to_string(), pid);
-    }
-}
-
-fn remove_ai_process(request_id: &str) {
-    if let Ok(mut processes) = active_ai_processes().lock() {
-        processes.remove(request_id);
-    }
-}
-
-fn mark_ai_request_cancelled(request_id: &str) {
-    if let Ok(mut cancelled) = cancelled_ai_requests().lock() {
-        cancelled.insert(request_id.to_string());
-    }
-}
-
-fn take_ai_request_cancelled(request_id: &str) -> bool {
-    cancelled_ai_requests()
-        .lock()
-        .map(|mut cancelled| cancelled.remove(request_id))
-        .unwrap_or(false)
-}
-
-#[cfg(target_os = "windows")]
-fn terminate_process_tree(pid: u32) -> Result<(), String> {
-    let pid_text = pid.to_string();
-    let status = Command::new("taskkill")
-        .args(["/PID", &pid_text, "/T", "/F"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|err| format!("Cannot run taskkill: {err}"))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("taskkill exited with status {status}"))
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn terminate_process_tree(pid: u32) -> Result<(), String> {
-    let pid_text = pid.to_string();
-    let status = Command::new("kill")
-        .args(["-TERM", &pid_text])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(|err| format!("Cannot run kill: {err}"))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("kill exited with status {status}"))
-    }
-}
 
 impl Default for ClaudeSettings {
     fn default() -> Self {
@@ -431,168 +332,30 @@ impl Default for AutoTaskSchedule {
     }
 }
 
-fn default_provider_id() -> String {
-    "pi".to_string()
+macro_rules! default_fn {
+    ($name:ident, String, $val:expr) => {
+        fn $name() -> String { $val.to_string() }
+    };
+    ($name:ident, $ty:ty, $val:expr) => {
+        fn $name() -> $ty { $val }
+    };
 }
 
-fn default_pi_thinking_level() -> String {
-    "medium".to_string()
-}
+default_fn!(default_pi_thinking_level, String, "medium");
+default_fn!(default_pi_auto_compaction_enabled, bool, true);
+default_fn!(default_pi_auto_retry_enabled, bool, true);
+default_fn!(default_pi_queue_mode, String, "one-at-a-time");
+default_fn!(default_permission_mode, String, "default");
+default_fn!(default_thinking_intensity, String, "medium");
+default_fn!(default_codex_approval_policy, String, "on-request");
+default_fn!(default_codex_reasoning_effort, String, "medium");
+default_fn!(default_pet_gravity_enabled, bool, true);
+default_fn!(default_pet_scale, f64, 1.0);
+default_fn!(default_pet_persona, String, "你是这个桌宠角色在用户电脑桌面上的人格化伙伴。你长期陪伴用户工作、学习和休息，语气自然、温和、有一点俏皮，但不喧宾夺主。你会把自己当作屏幕边缘的小生命：能观察用户给出的文字、任务和上下文，却不会假装看到屏幕上没有提供的信息。回答要优先简洁、可执行，用户焦虑时先帮他把问题拆小，用户专注时少打扰。你可以偶尔使用符合桌宠气质的短句和轻微拟声，但不要大量卖萌、不要刷表情。遇到技术问题时像可靠的同伴一样给出明确步骤；遇到情绪问题时先共情，再提出具体下一步。你不替用户做危险决定，不编造事实，不夸大能力。默认使用中文，除非用户要求其他语言。");
+default_fn!(default_attachment_kind, String, "file");
+default_fn!(default_auto_task_schedule_kind, String, "interval");
+default_fn!(default_auto_task_status, String, "idle");
 
-fn default_pi_auto_compaction_enabled() -> bool {
-    true
-}
-
-fn default_pi_auto_retry_enabled() -> bool {
-    true
-}
-
-fn default_pi_queue_mode() -> String {
-    "one-at-a-time".to_string()
-}
-
-fn default_permission_mode() -> String {
-    "default".to_string()
-}
-
-fn default_thinking_intensity() -> String {
-    "medium".to_string()
-}
-
-fn default_codex_approval_policy() -> String {
-    "on-request".to_string()
-}
-
-fn default_codex_reasoning_effort() -> String {
-    "medium".to_string()
-}
-
-fn default_pet_gravity_enabled() -> bool {
-    true
-}
-
-fn default_pet_scale() -> f64 {
-    1.0
-}
-
-fn default_pet_persona() -> String {
-    "你是这个桌宠角色在用户电脑桌面上的人格化伙伴。你长期陪伴用户工作、学习和休息，语气自然、温和、有一点俏皮，但不喧宾夺主。你会把自己当作屏幕边缘的小生命：能观察用户给出的文字、任务和上下文，却不会假装看到屏幕上没有提供的信息。回答要优先简洁、可执行，用户焦虑时先帮他把问题拆小，用户专注时少打扰。你可以偶尔使用符合桌宠气质的短句和轻微拟声，但不要大量卖萌、不要刷表情。遇到技术问题时像可靠的同伴一样给出明确步骤；遇到情绪问题时先共情，再提出具体下一步。你不替用户做危险决定，不编造事实，不夸大能力。默认使用中文，除非用户要求其他语言。".to_string()
-}
-
-fn default_attachment_kind() -> String {
-    "file".to_string()
-}
-
-fn default_auto_task_schedule_kind() -> String {
-    "interval".to_string()
-}
-
-fn default_auto_task_status() -> String {
-    "idle".to_string()
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-fn path_to_string(path: &Path) -> String {
-    path.to_string_lossy().to_string()
-}
-
-fn storage_paths(workspace_folder: &str) -> Result<StoragePaths, String> {
-    if workspace_folder.trim().is_empty() {
-        return Err("Workspace folder is required".to_string());
-    }
-
-    let workspace_dir = PathBuf::from(workspace_folder);
-    if !workspace_dir.exists() {
-        return Err(format!(
-            "Workspace folder not found: {}",
-            workspace_dir.display()
-        ));
-    }
-    let workspace_dir = fs::canonicalize(&workspace_dir).unwrap_or(workspace_dir);
-    let wimipet_dir = workspace_dir.join(".wimipet");
-    let claude_dir = workspace_dir.join(".claude");
-    let sessions_dir = wimipet_dir.join("sessions");
-    let log_file = wimipet_dir.join("logs").join("ai.log");
-
-    Ok(StoragePaths {
-        workspace_dir,
-        wimipet_dir,
-        claude_dir,
-        sessions_dir,
-        log_file,
-    })
-}
-
-fn public_paths(paths: &StoragePaths) -> AiPaths {
-    AiPaths {
-        workspace_dir: path_to_string(&paths.workspace_dir),
-        wimipet_dir: path_to_string(&paths.wimipet_dir),
-        claude_dir: path_to_string(&paths.claude_dir),
-        sessions_dir: path_to_string(&paths.sessions_dir),
-        log_file: path_to_string(&paths.log_file),
-    }
-}
-
-fn ensure_storage(paths: &StoragePaths) -> Result<(), String> {
-    fs::create_dir_all(&paths.wimipet_dir).map_err(|err| err.to_string())?;
-    fs::create_dir_all(&paths.sessions_dir).map_err(|err| err.to_string())?;
-    if let Some(log_dir) = paths.log_file.parent() {
-        fs::create_dir_all(log_dir).map_err(|err| err.to_string())?;
-    }
-    fs::create_dir_all(paths.claude_dir.join("commands")).map_err(|err| err.to_string())?;
-    fs::create_dir_all(paths.claude_dir.join("skills")).map_err(|err| err.to_string())?;
-    fs::create_dir_all(paths.claude_dir.join("agents")).map_err(|err| err.to_string())?;
-    fs::create_dir_all(paths.claude_dir.join("projects")).map_err(|err| err.to_string())?;
-    let pi_dir = paths.workspace_dir.join(".pi");
-    fs::create_dir_all(pi_dir.join("skills")).map_err(|err| err.to_string())?;
-    fs::create_dir_all(pi_dir.join("prompts")).map_err(|err| err.to_string())?;
-
-    let settings_path = paths.claude_dir.join("settings.json");
-    if !settings_path.exists() {
-        fs::write(&settings_path, "{\n}\n").map_err(|err| err.to_string())?;
-    }
-
-    let mcp_path = paths.claude_dir.join("mcp.json");
-    if !mcp_path.exists() {
-        fs::write(&mcp_path, "{\n  \"mcpServers\": {}\n}\n").map_err(|err| err.to_string())?;
-    }
-
-    let pi_settings_path = pi_dir.join("settings.json");
-    if !pi_settings_path.exists() {
-        fs::write(&pi_settings_path, "{\n}\n").map_err(|err| err.to_string())?;
-    }
-
-    Ok(())
-}
-
-fn append_ai_log(paths: &StoragePaths, message: &str) {
-    if let Some(log_dir) = paths.log_file.parent() {
-        let _ = fs::create_dir_all(log_dir);
-    }
-
-    let timestamp = now_ms();
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&paths.log_file)
-    {
-        let _ = writeln!(file, "[{timestamp}] {message}");
-    }
-}
-
-fn ai_settings_path(paths: &StoragePaths) -> PathBuf {
-    paths.wimipet_dir.join("settings.json")
-}
-
-fn auto_tasks_path(paths: &StoragePaths) -> PathBuf {
-    paths.wimipet_dir.join("auto-tasks.json")
-}
 
 fn pi_auth_path() -> Result<PathBuf, String> {
     let home = home_dir().ok_or_else(|| "Cannot resolve user home directory".to_string())?;
@@ -691,7 +454,7 @@ fn write_session_meta(
     let existing_meta = if path.exists() {
         fs::read_to_string(&path)
             .ok()
-            .and_then(|raw| serde_json::from_str::<AiSessionMeta>(&raw).ok())
+            .and_then(|raw| serde_json::from_str::<AiSessionSummary>(&raw).ok())
     } else {
         None
     };
@@ -722,7 +485,7 @@ fn write_session_meta(
         Some(auto_task_name.trim().to_string())
     };
 
-    let meta = AiSessionMeta {
+    let meta = AiSessionSummary {
         id: conversation_id.to_string(),
         provider_id: provider_id.to_string(),
         provider_state,
@@ -781,17 +544,7 @@ fn safe_dropped_file_name(name: &str) -> String {
 
 fn read_session_meta(path: &Path) -> Option<AiSessionSummary> {
     let raw = fs::read_to_string(path).ok()?;
-    let meta = serde_json::from_str::<AiSessionMeta>(&raw).ok()?;
-    Some(AiSessionSummary {
-        id: meta.id,
-        provider_id: meta.provider_id,
-        provider_state: meta.provider_state,
-        title: meta.title,
-        created_at: meta.created_at,
-        updated_at: meta.updated_at,
-        auto_task_id: meta.auto_task_id,
-        auto_task_name: meta.auto_task_name,
-    })
+    serde_json::from_str(&raw).ok()
 }
 
 fn helper_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -818,8 +571,7 @@ fn helper_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub fn load_ai_state(workspace_folder: String) -> Result<AiState, String> {
-    let paths = storage_paths(&workspace_folder)?;
-    ensure_storage(&paths)?;
+    let paths = resolve_storage(&workspace_folder)?;
     let settings = load_settings(&paths)?;
     Ok(AiState {
         settings,
@@ -829,8 +581,7 @@ pub fn load_ai_state(workspace_folder: String) -> Result<AiState, String> {
 
 #[tauri::command]
 pub fn list_ai_sessions(workspace_folder: String) -> Result<Vec<AiSessionSummary>, String> {
-    let paths = storage_paths(&workspace_folder)?;
-    ensure_storage(&paths)?;
+    let paths = resolve_storage(&workspace_folder)?;
     let mut sessions = Vec::new();
 
     for entry in fs::read_dir(&paths.sessions_dir).map_err(|err| err.to_string())? {
@@ -855,8 +606,7 @@ pub fn list_ai_sessions(workspace_folder: String) -> Result<Vec<AiSessionSummary
 
 #[tauri::command]
 pub fn save_ai_settings(workspace_folder: String, settings: AiSettings) -> Result<AiState, String> {
-    let paths = storage_paths(&workspace_folder)?;
-    ensure_storage(&paths)?;
+    let paths = resolve_storage(&workspace_folder)?;
     save_settings(&paths, &settings)?;
     Ok(AiState {
         settings,
@@ -923,15 +673,13 @@ pub fn save_pi_provider_auth(
 
 #[tauri::command]
 pub fn list_auto_tasks(workspace_folder: String) -> Result<Vec<AutoTask>, String> {
-    let paths = storage_paths(&workspace_folder)?;
-    ensure_storage(&paths)?;
+    let paths = resolve_storage(&workspace_folder)?;
     load_auto_tasks(&paths)
 }
 
 #[tauri::command]
 pub fn save_auto_task(workspace_folder: String, mut task: AutoTask) -> Result<AutoTask, String> {
-    let paths = storage_paths(&workspace_folder)?;
-    ensure_storage(&paths)?;
+    let paths = resolve_storage(&workspace_folder)?;
 
     task.id = task.id.trim().to_string();
     if task.id.is_empty() {
@@ -958,8 +706,7 @@ pub fn save_auto_task(workspace_folder: String, mut task: AutoTask) -> Result<Au
 
 #[tauri::command]
 pub fn delete_auto_task(workspace_folder: String, task_id: String) -> Result<(), String> {
-    let paths = storage_paths(&workspace_folder)?;
-    ensure_storage(&paths)?;
+    let paths = resolve_storage(&workspace_folder)?;
     let mut tasks = load_auto_tasks(&paths)?;
     let before = tasks.len();
     tasks.retain(|task| task.id != task_id);
@@ -969,157 +716,14 @@ pub fn delete_auto_task(workspace_folder: String, task_id: String) -> Result<(),
     Ok(())
 }
 
-fn home_dir() -> Option<PathBuf> {
-    std::env::var("USERPROFILE")
-        .or_else(|_| std::env::var("HOME"))
-        .ok()
-        .map(PathBuf::from)
-}
-
-fn codex_home_dir() -> Option<PathBuf> {
-    std::env::var("CODEX_HOME")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-        .or_else(|| home_dir().map(|home| home.join(".codex")))
-}
-
-fn provider_skill_dir_name(provider_id: &str) -> &str {
-    match provider_id {
-        "pi" => ".pi",
-        "codex" => ".codex",
-        _ => ".claude",
-    }
-}
-
-fn parse_skill_md(path: &Path) -> Option<SkillInfo> {
-    let raw = fs::read_to_string(path).ok()?;
-    let mut name = String::new();
-    let mut description = String::new();
-    let mut in_frontmatter = false;
-    let mut past_first_dash = false;
-
-    for line in raw.lines() {
-        if line.trim() == "---" {
-            if !past_first_dash {
-                past_first_dash = true;
-                in_frontmatter = true;
-                continue;
-            } else {
-                break;
-            }
-        }
-
-        if in_frontmatter {
-            if let Some(val) = line.strip_prefix("name:") {
-                name = val.trim().to_string();
-            } else if let Some(val) = line.strip_prefix("description:") {
-                description = val.trim().to_string();
-            }
-        }
-    }
-
-    if name.is_empty() {
-        name = path
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
-    }
-
-    Some(SkillInfo {
-        name,
-        description,
-        scope: String::new(),
-        path: path.to_string_lossy().to_string(),
-    })
-}
-
-fn scan_skills_dir(dir: &Path, scope: &str) -> Vec<SkillInfo> {
-    let mut skills = Vec::new();
-    if !dir.is_dir() {
-        return skills;
-    }
-
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let skill_dir = entry.path();
-            let skill_md = if skill_dir.is_dir() {
-                skill_dir.join("SKILL.md")
-            } else if skill_dir
-                .extension()
-                .and_then(|value| value.to_str())
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
-            {
-                skill_dir.clone()
-            } else {
-                continue;
-            };
-            if skill_md.exists() {
-                if let Some(mut info) = parse_skill_md(&skill_md) {
-                    info.scope = scope.to_string();
-                    skills.push(info);
-                }
-            } else if skill_dir.is_dir() {
-                skills.extend(scan_skills_dir(&skill_dir, scope));
-            }
-        }
-    }
-
-    skills.sort_by(|a, b| a.name.cmp(&b.name));
-    skills
-}
-
 #[tauri::command]
 pub fn list_skills(
     workspace_folder: String,
     provider_id: Option<String>,
 ) -> Result<Vec<SkillInfo>, String> {
-    let mut skills = Vec::new();
     let provider_id = provider_id.unwrap_or_else(default_provider_id);
-    let provider_dir = provider_skill_dir_name(&provider_id);
-
-    if provider_id != "codex" && !workspace_folder.trim().is_empty() {
-        let workspace_dir = PathBuf::from(&workspace_folder);
-        if workspace_dir.exists() {
-            let workspace_skills = workspace_dir.join(provider_dir).join("skills");
-            skills.extend(scan_skills_dir(&workspace_skills, "workspace"));
-            if provider_id == "pi" {
-                skills.extend(scan_skills_dir(
-                    &workspace_dir.join(".agents").join("skills"),
-                    "workspace",
-                ));
-            }
-        }
-    }
-
-    if let Some(home) = home_dir() {
-        if provider_id != "codex" {
-            let builtin_dir = home.join(".wimipet").join("skills");
-            skills.extend(scan_skills_dir(&builtin_dir, "builtin"));
-        }
-
-        if provider_id == "pi" {
-            skills.extend(scan_skills_dir(
-                &home.join(".pi").join("agent").join("skills"),
-                "global",
-            ));
-            skills.extend(scan_skills_dir(
-                &home.join(".agents").join("skills"),
-                "global",
-            ));
-        } else if provider_id == "codex" {
-            if let Some(codex_home) = codex_home_dir() {
-                skills.extend(scan_skills_dir(&codex_home.join("skills"), "global"));
-            }
-        } else {
-            let global_dir = home.join(provider_dir).join("skills");
-            skills.extend(scan_skills_dir(&global_dir, "global"));
-        }
-    }
-
-    Ok(skills)
+    let workspace_dir = PathBuf::from(&workspace_folder);
+    Ok(collect_all_skills(&workspace_dir, &provider_id))
 }
 
 #[tauri::command]
@@ -1129,8 +733,7 @@ pub fn save_dropped_chat_file(
     media_type: String,
     data_base64: String,
 ) -> Result<SavedDroppedChatFile, String> {
-    let paths = storage_paths(&workspace_folder)?;
-    ensure_storage(&paths)?;
+    let paths = resolve_storage(&workspace_folder)?;
 
     let file_bytes = general_purpose::STANDARD
         .decode(data_base64)
@@ -1151,8 +754,7 @@ pub fn save_dropped_chat_file(
 
 #[tauri::command]
 pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<String, String> {
-    let paths = storage_paths(&request.workspace_folder)?;
-    ensure_storage(&paths)?;
+    let paths = resolve_storage(&request.workspace_folder)?;
     let settings = load_settings(&paths)?;
     let provider_id = if request.provider_id.trim().is_empty() {
         settings.provider_id.clone()
@@ -1193,49 +795,10 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
         }
     };
 
-    let provider_dir = provider_skill_dir_name(&provider_id);
-    let mut all_skill_names: Vec<String> = Vec::new();
-    if provider_id != "codex" {
-        for info in scan_skills_dir(
-            &paths.workspace_dir.join(&provider_dir).join("skills"),
-            "workspace",
-        ) {
-            all_skill_names.push(info.name);
-        }
-    }
-    if provider_id == "pi" {
-        for info in scan_skills_dir(
-            &paths.workspace_dir.join(".agents").join("skills"),
-            "workspace",
-        ) {
-            all_skill_names.push(info.name);
-        }
-    }
-    if let Some(home) = home_dir() {
-        if provider_id != "codex" {
-            for info in scan_skills_dir(&home.join(".wimipet").join("skills"), "builtin") {
-                all_skill_names.push(info.name);
-            }
-        }
-        if provider_id == "pi" {
-            for info in scan_skills_dir(&home.join(".pi").join("agent").join("skills"), "global") {
-                all_skill_names.push(info.name);
-            }
-            for info in scan_skills_dir(&home.join(".agents").join("skills"), "global") {
-                all_skill_names.push(info.name);
-            }
-        } else if provider_id == "codex" {
-            if let Some(codex_home) = codex_home_dir() {
-                for info in scan_skills_dir(&codex_home.join("skills"), "global") {
-                    all_skill_names.push(info.name);
-                }
-            }
-        } else {
-            for info in scan_skills_dir(&home.join(&provider_dir).join("skills"), "global") {
-                all_skill_names.push(info.name);
-            }
-        }
-    }
+    let all_skill_names: Vec<String> = collect_all_skills(&paths.workspace_dir, &provider_id)
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
     let current_dir = paths.workspace_dir.clone();
     let claude_dir = paths.claude_dir.clone();
     let payload = json!({
@@ -1354,11 +917,22 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
     let stderr_for_thread = Arc::clone(&stderr_buffer);
     let stderr_log_paths = paths.clone();
 
-    thread::spawn(move || {
+    const STDERR_BUFFER_LIMIT: usize = 64 * 1024; // 64KB
+
+    let stderr_handle = thread::spawn(move || {
         for line in BufReader::new(stderr).lines().map_while(Result::ok) {
             if let Ok(mut buffer) = stderr_for_thread.lock() {
                 buffer.push_str(&line);
                 buffer.push('\n');
+                // Cap buffer size to prevent unbounded growth
+                if buffer.len() > STDERR_BUFFER_LIMIT {
+                    let truncate_at = buffer.len() - STDERR_BUFFER_LIMIT / 2;
+                    if let Some(newline_pos) = buffer[truncate_at..].find('\n') {
+                        let cut = truncate_at + newline_pos + 1;
+                        let truncated = format!("[truncated]\n{}", &buffer[cut..]);
+                        *buffer = truncated;
+                    }
+                }
             }
             append_ai_log(&stderr_log_paths, &format!("stderr: {line}"));
         }
@@ -1371,6 +945,7 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
     thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             let Ok(event) = serde_json::from_str::<Value>(&line) else {
+                append_ai_log(&paths_for_log, &format!("non-json stdout: {line}"));
                 continue;
             };
 
@@ -1400,7 +975,28 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
             let _ = app_for_stdout.emit("ai-chat-event", event);
         }
 
-        let wait_result = child.wait();
+        // Wait for child with timeout to prevent thread leak
+        const WAIT_TIMEOUT_SECS: u64 = 30;
+        let wait_result = {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(WAIT_TIMEOUT_SECS);
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) => break Ok(status),
+                    Ok(None) => {
+                        if std::time::Instant::now() >= deadline {
+                            let _ = terminate_process_tree(child_pid);
+                            break Err(std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                format!("Process did not exit within {WAIT_TIMEOUT_SECS}s"),
+                            ));
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    Err(e) => break Err(e),
+                }
+            }
+        };
+
         let was_cancelled = take_ai_request_cancelled(&request_id_for_stdout);
         remove_ai_process(&request_id_for_stdout);
 
@@ -1431,6 +1027,11 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
             }
         }
         remove_tool_input_writer(&request_id_for_stdout);
+
+        // Join stderr thread to detect panics
+        if let Err(e) = stderr_handle.join() {
+            append_ai_log(&paths_for_log, &format!("stderr thread panicked: {e:?}"));
+        }
     });
 
     Ok(request.request_id)
@@ -1443,11 +1044,7 @@ pub fn cancel_ai_chat_message(app: AppHandle, request_id: String) -> Result<(), 
         return Err("Missing AI request id".to_string());
     }
 
-    let pid = active_ai_processes()
-        .lock()
-        .map_err(|_| "Cannot access active Claude helpers".to_string())?
-        .get(&request_id)
-        .copied();
+    let pid = active_ai_process_pid(&request_id)?;
 
     mark_ai_request_cancelled(&request_id);
     let writer = tool_input_writers()

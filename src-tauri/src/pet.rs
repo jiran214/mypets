@@ -1,8 +1,33 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-use std::{path::PathBuf, process::Command};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::ai::AiSettings;
+
+/// Canonicalize a path and verify it is under the user's home directory.
+fn validate_under_home(path: &Path, label: &str) -> Result<PathBuf, String> {
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|e| format!("Cannot resolve {label}: {e}"))?;
+    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+    let home_canonical = std::fs::canonicalize(&home).unwrap_or(home);
+    if !canonical.starts_with(&home_canonical) {
+        return Err(format!("{label} must be under home directory"));
+    }
+    Ok(canonical)
+}
+
+/// Validate a pet folder: must be a directory under home, and return its canonical path.
+fn validate_pet_folder(folder: &str) -> Result<PathBuf, String> {
+    if folder.trim().is_empty() {
+        return Err("Workspace folder is required".to_string());
+    }
+    let folder_path = PathBuf::from(folder);
+    if !folder_path.is_dir() {
+        return Err(format!("Workspace folder not found: {}", folder_path.display()));
+    }
+    validate_under_home(&folder_path, "pet folder")
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -17,7 +42,7 @@ pub struct PetMeta {
 
 #[tauri::command]
 pub fn load_pet(folder: String) -> Result<PetMeta, String> {
-    let folder_path = PathBuf::from(&folder);
+    let folder_path = validate_pet_folder(&folder)?;
     let json_path = folder_path.join("pet.json");
     let json_str =
         std::fs::read_to_string(&json_path).map_err(|e| format!("Cannot read pet.json: {}", e))?;
@@ -37,16 +62,24 @@ pub fn load_pet(folder: String) -> Result<PetMeta, String> {
     }
 
     let sheet_path = folder_path.join(&meta.spritesheet_path);
-    if !sheet_path.exists() {
+    // Ensure the resolved spritesheet path stays within the pet folder (prevent traversal via pet.json)
+    let sheet_canonical = std::fs::canonicalize(&sheet_path)
+        .map_err(|e| format!("Cannot resolve spritesheet path: {e}"))?;
+    if !sheet_canonical.starts_with(&folder_path) {
+        return Err("Spritesheet path is outside the pet folder".to_string());
+    }
+    if !sheet_canonical.exists() {
         return Err(format!("Spritesheet not found: {}", sheet_path.display()));
     }
-    meta.spritesheet_path = sheet_path.to_string_lossy().to_string();
+    meta.spritesheet_path = sheet_canonical.to_string_lossy().to_string();
     Ok(meta)
 }
 
 #[tauri::command]
 pub fn load_spritesheet(path: String) -> Result<String, String> {
-    let data = std::fs::read(&path).map_err(|e| format!("Cannot read spritesheet: {}", e))?;
+    let path_buf = PathBuf::from(&path);
+    let canonical = validate_under_home(&path_buf, "spritesheet path")?;
+    let data = std::fs::read(&canonical).map_err(|e| format!("Cannot read spritesheet: {e}"))?;
     let mime = image_mime_type(&path, &data);
     let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
     Ok(format!("data:{};base64,{}", mime, b64))
@@ -86,42 +119,18 @@ fn image_mime_type(path: &str, data: &[u8]) -> &'static str {
 
 #[tauri::command]
 pub fn delete_pet_workspace(folder: String) -> Result<(), String> {
-    if folder.trim().is_empty() {
-        return Err("Workspace folder is required".to_string());
-    }
-
-    let folder_path = PathBuf::from(&folder);
-    if !folder_path.is_dir() {
-        return Err(format!(
-            "Workspace folder not found: {}",
-            folder_path.display()
-        ));
-    }
-
-    let folder_path = std::fs::canonicalize(&folder_path).unwrap_or(folder_path);
+    let folder_path = validate_pet_folder(&folder)?;
     let json_path = folder_path.join("pet.json");
     if !json_path.is_file() {
         return Err(format!("pet.json not found: {}", json_path.display()));
     }
 
-    trash::delete(&folder_path).map_err(|e| format!("Cannot move workspace to recycle bin: {}", e))
+    trash::delete(&folder_path).map_err(|e| format!("Cannot move workspace to recycle bin: {e}"))
 }
 
 #[tauri::command]
 pub fn open_workspace_in_file_manager(folder: String) -> Result<(), String> {
-    if folder.trim().is_empty() {
-        return Err("Workspace folder is required".to_string());
-    }
-
-    let folder_path = PathBuf::from(&folder);
-    if !folder_path.is_dir() {
-        return Err(format!(
-            "Workspace folder not found: {}",
-            folder_path.display()
-        ));
-    }
-
-    let folder_path = std::fs::canonicalize(&folder_path).unwrap_or(folder_path);
+    let folder_path = validate_pet_folder(&folder)?;
 
     #[cfg(target_os = "windows")]
     let result = Command::new("explorer").arg(&folder_path).spawn();
@@ -134,5 +143,5 @@ pub fn open_workspace_in_file_manager(folder: String) -> Result<(), String> {
 
     result
         .map(|_| ())
-        .map_err(|e| format!("Cannot open workspace folder: {}", e))
+        .map_err(|e| format!("Cannot open workspace folder: {e}"))
 }
