@@ -233,12 +233,6 @@ function piProviderOption(value: string): (typeof PI_PROVIDER_OPTIONS)[number] |
   return PI_PROVIDER_OPTIONS.find((option) => option.value === normalized);
 }
 
-function customPiEnvVar(provider: string): string {
-  const normalized = provider.trim();
-  if (!normalized) return 'API_KEY';
-  return `${normalized.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').toUpperCase()}_API_KEY`;
-}
-
 type SettingsTab = 'general' | 'skin' | 'agent' | 'skills' | 'autoTasks';
 type MainView = 'chat' | 'settings';
 type AutoTaskFilter = 'all' | 'running' | 'enabled' | 'paused' | 'expired';
@@ -1407,7 +1401,9 @@ function AgentSettings({
   const piProviderValue = settingsDraft.pi.provider.trim();
   const knownPiProvider = Boolean(selectedPiProvider);
   const piAuthKey = selectedPiProvider?.authKey ?? '';
-  const piEnvVar = selectedPiProvider?.envVar ?? customPiEnvVar(piProviderValue);
+  const piEnvVar = selectedPiProvider?.envVar ?? '';
+  const allPiProviders = PI_PROVIDER_OPTIONS;
+  const [piInputValue, setPiInputValue] = useState('');
   const [piApiKey, setPiApiKey] = useState('');
   const [piAuthStatus, setPiAuthStatus] = useState('');
   const [piAuthLoadedKey, setPiAuthLoadedKey] = useState('');
@@ -1502,43 +1498,21 @@ function AgentSettings({
             <>
               <Field data-disabled={disabled}>
                 <FieldLabel>Pi provider</FieldLabel>
-                <div className="flex gap-2">
-                  <Input
+                <SettingDropdown
+                  disabled={disabled}
+                  value={allPiProviders.find((o) => o.value === settingsDraft.pi.provider)?.label ?? settingsDraft.pi.provider}
+                >
+                  <DropdownMenuRadioGroup
                     value={settingsDraft.pi.provider}
-                    disabled={disabled}
-                    placeholder="选择或输入 provider"
-                    onChange={(event) => onSettingsChange({
-                      ...settingsDraft,
-                      pi: { ...settingsDraft.pi, provider: event.currentTarget.value },
-                    })}
-                  />
-                  <SettingDropdown
-                    disabled={disabled}
-                    value={selectedPiProvider?.label ?? '选择'}
-                    menuClassName="max-h-80 overflow-y-auto"
+                    onValueChange={(value) => onSettingsChange({ ...settingsDraft, pi: { ...settingsDraft.pi, provider: value } })}
                   >
-                    <DropdownMenuRadioGroup
-                      value={settingsDraft.pi.provider}
-                      onValueChange={(value) => onSettingsChange({
-                        ...settingsDraft,
-                        pi: { ...settingsDraft.pi, provider: value },
-                      })}
-                    >
-                      {PI_PROVIDER_OPTIONS.map((option) => (
-                        <DropdownMenuRadioItem
-                          key={option.value}
-                          value={option.value}
-                          className="items-start gap-2 py-2 pr-8 whitespace-normal"
-                        >
-                          <span className="flex min-w-0 flex-col gap-0.5">
-                            <span className="font-medium">{option.label}</span>
-                            <span className="text-xs text-muted-foreground">{option.value} / {option.envVar}</span>
-                          </span>
-                        </DropdownMenuRadioItem>
-                      ))}
-                    </DropdownMenuRadioGroup>
-                  </SettingDropdown>
-                </div>
+                    {allPiProviders.map((option) => (
+                      <DropdownMenuRadioItem key={option.value} value={option.value}>
+                        {option.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </SettingDropdown>
                 <FieldDescription>可从列表选择，也可输入自定义 provider id。</FieldDescription>
               </Field>
 
