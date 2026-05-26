@@ -1,7 +1,7 @@
 import { LogicalSize, PhysicalPosition } from '@tauri-apps/api/window';
 import { safeCurrentWindow } from '@/lib/tauri-utils';
-import type { SpriteRenderer } from './renderer';
-import type { AnimationState } from './types';
+import type { SpriteRenderer } from '@/renderer';
+import type { AnimationState } from '@/types';
 
 const DRAG_THRESHOLD = 10;
 const MIN_SCALE = 0.5;

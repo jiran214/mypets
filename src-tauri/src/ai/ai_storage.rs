@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::{
     fs::{self, OpenOptions},
     io::{BufWriter, Write},
@@ -6,6 +7,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use super::ai_models::AiSessionSummary;
+use super::ai_skills::home_dir;
 use super::AiPaths;
 
 #[derive(Clone)]
@@ -152,4 +155,146 @@ pub(crate) fn ai_settings_path(paths: &StoragePaths) -> PathBuf {
 
 pub(crate) fn auto_tasks_path(paths: &StoragePaths) -> PathBuf {
     paths.wimipet_dir.join("auto-tasks.json")
+}
+
+pub(crate) fn load_settings(paths: &StoragePaths) -> Result<super::ai_models::AiSettings, String> {
+    let path = ai_settings_path(paths);
+    if !path.exists() {
+        let settings = super::ai_models::AiSettings::default();
+        save_settings(paths, &settings)?;
+        return Ok(settings);
+    }
+
+    let raw = fs::read_to_string(&path).map_err(|err| format!("Cannot read AI settings: {err}"))?;
+    serde_json::from_str(&raw).map_err(|err| format!("Invalid AI settings: {err}"))
+}
+
+pub(crate) fn save_settings(paths: &StoragePaths, settings: &super::ai_models::AiSettings) -> Result<(), String> {
+    let raw = serde_json::to_string_pretty(settings).map_err(|err| err.to_string())?;
+    fs::write(ai_settings_path(paths), format!("{raw}\n")).map_err(|err| err.to_string())
+}
+
+pub(crate) fn load_auto_tasks(paths: &StoragePaths) -> Result<Vec<super::ai_models::AutoTask>, String> {
+    let path = auto_tasks_path(paths);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let raw = fs::read_to_string(&path).map_err(|err| format!("Cannot read auto tasks: {err}"))?;
+    serde_json::from_str(&raw).map_err(|err| format!("Invalid auto tasks: {err}"))
+}
+
+pub(crate) fn save_auto_tasks_file(paths: &StoragePaths, tasks: &[super::ai_models::AutoTask]) -> Result<(), String> {
+    let raw = serde_json::to_string_pretty(tasks).map_err(|err| err.to_string())?;
+    fs::write(auto_tasks_path(paths), format!("{raw}\n")).map_err(|err| err.to_string())
+}
+
+pub(crate) fn session_meta_path(paths: &StoragePaths, conversation_id: &str) -> PathBuf {
+    let file_name: String = conversation_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    paths.sessions_dir.join(format!("{file_name}.meta.json"))
+}
+
+pub(crate) fn write_session_meta(
+    paths: &StoragePaths,
+    conversation_id: &str,
+    provider_id: &str,
+    provider_state: serde_json::Value,
+    prompt: &str,
+    title: &str,
+    auto_task_id: &str,
+    auto_task_name: &str,
+) -> Result<(), String> {
+    let path = session_meta_path(paths, conversation_id);
+    let now = now_ms();
+    let existing_meta = if path.exists() {
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<AiSessionSummary>(&raw).ok())
+    } else {
+        None
+    };
+    let existing_auto_task_id = existing_meta
+        .as_ref()
+        .and_then(|meta| meta.auto_task_id.clone());
+    let existing_auto_task_name = existing_meta
+        .as_ref()
+        .and_then(|meta| meta.auto_task_name.clone());
+    let meta_title = if title.trim().is_empty() {
+        existing_meta
+            .as_ref()
+            .map(|meta| meta.title.clone())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| prompt.chars().take(40).collect::<String>())
+    } else {
+        title.trim().to_string()
+    };
+    let created_at = existing_meta.map(|meta| meta.created_at).unwrap_or(now);
+    let auto_task_id = if auto_task_id.trim().is_empty() {
+        existing_auto_task_id
+    } else {
+        Some(auto_task_id.trim().to_string())
+    };
+    let auto_task_name = if auto_task_name.trim().is_empty() {
+        existing_auto_task_name
+    } else {
+        Some(auto_task_name.trim().to_string())
+    };
+
+    let meta = AiSessionSummary {
+        id: conversation_id.to_string(),
+        provider_id: provider_id.to_string(),
+        provider_state,
+        title: meta_title,
+        created_at,
+        updated_at: now,
+        auto_task_id,
+        auto_task_name,
+    };
+    let raw = serde_json::to_string_pretty(&meta).map_err(|err| err.to_string())?;
+    fs::write(path, format!("{raw}\n")).map_err(|err| err.to_string())
+}
+
+pub(crate) fn pi_auth_path() -> Result<PathBuf, String> {
+    let home = home_dir().ok_or_else(|| "Cannot resolve user home directory".to_string())?;
+    Ok(home.join(".pi").join("agent").join("auth.json"))
+}
+
+pub(crate) fn safe_pi_auth_key(provider: &str, auth_key: &str) -> Result<String, String> {
+    let key = if auth_key.trim().is_empty() {
+        provider.trim()
+    } else {
+        auth_key.trim()
+    };
+    if key.is_empty() {
+        return Err("Pi provider is required".to_string());
+    }
+    if !key
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+    {
+        return Err("Invalid Pi auth key".to_string());
+    }
+    Ok(key.to_string())
+}
+
+pub(crate) fn read_pi_auth_file(path: &Path) -> Result<serde_json::Map<String, Value>, String> {
+    if !path.exists() {
+        return Ok(serde_json::Map::new());
+    }
+    let raw = fs::read_to_string(path).map_err(|err| format!("Cannot read Pi auth file: {err}"))?;
+    if raw.trim().is_empty() {
+        return Ok(serde_json::Map::new());
+    }
+    let value: Value =
+        serde_json::from_str(&raw).map_err(|err| format!("Invalid Pi auth file: {err}"))?;
+    Ok(value.as_object().cloned().unwrap_or_default())
 }

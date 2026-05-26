@@ -49,6 +49,8 @@ export class ChatRuntime {
   private cancellingRequestId: string | null = null;
   private listeners = new Set<Listener>();
   private _saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private _throttleTimer: ReturnType<typeof setTimeout> | null = null;
+  private _lastNotifyTime = 0;
 
   async init(): Promise<void> {
     await listenToAiChatEvents((event) => this.handleEvent(event));
@@ -290,7 +292,7 @@ export class ChatRuntime {
 
     if (event.type === 'status') {
       this.statusText = event.status === 'started' ? `${this.providerLabel()} 正在回复...` : event.status;
-      this.notify();
+      this.notifyThrottled();
       return;
     }
 
@@ -308,7 +310,7 @@ export class ChatRuntime {
       assistant.pending = true;
       this.statusText = `${this.providerLabel()} 正在回复...`;
       this.saveCurrentConversation();
-      this.notify();
+      this.notifyThrottled();
       return;
     }
 
@@ -319,20 +321,22 @@ export class ChatRuntime {
       assistant.pending = true;
       this.statusText = `${this.providerLabel()} 正在回复...`;
       this.saveCurrentConversation();
-      this.notify();
+      this.notifyThrottled();
       return;
     }
 
     if (event.type === 'question') {
       const assistant = this.currentAssistant();
       if (!assistant) return;
+      const questionData: ToolQuestionPartData = {
+        ...event.question,
+        status: 'pending',
+      };
       this.appendPart(assistant, {
         kind: 'question',
         title: event.question.title || questionTitle(event.question),
-        text: JSON.stringify({
-          ...event.question,
-          status: 'pending',
-        } satisfies ToolQuestionPartData),
+        text: JSON.stringify(questionData),
+        questionData,
       });
       assistant.pending = true;
       this.statusText = '你的选择';
@@ -381,11 +385,12 @@ export class ChatRuntime {
       const part = message.parts.find((item) => item.id === partId && item.kind === 'question');
       if (!part) continue;
 
-      const data = parseToolQuestionPartData(part.text);
+      const data = part.questionData ?? parseToolQuestionPartData(part.text);
       if (!data) return null;
       const next = update(data);
       part.title = next.title || questionTitle(next);
       part.text = JSON.stringify(next);
+      part.questionData = next;
       return next;
     }
 
@@ -397,6 +402,10 @@ export class ChatRuntime {
     this.currentAssistantId = null;
     this.cancellingRequestId = null;
     this.statusText = '';
+    if (this._throttleTimer) {
+      clearTimeout(this._throttleTimer);
+      this._throttleTimer = null;
+    }
     this.flush();
     this.notify();
   }
@@ -451,6 +460,23 @@ export class ChatRuntime {
   private notify(): void {
     for (const listener of this.listeners) {
       listener();
+    }
+  }
+
+  private notifyThrottled(): void {
+    const now = performance.now();
+    const elapsed = now - this._lastNotifyTime;
+    const THROTTLE_MS = 100;
+
+    if (elapsed >= THROTTLE_MS) {
+      this._lastNotifyTime = now;
+      this.notify();
+    } else if (!this._throttleTimer) {
+      this._throttleTimer = setTimeout(() => {
+        this._throttleTimer = null;
+        this._lastNotifyTime = performance.now();
+        this.notify();
+      }, THROTTLE_MS - elapsed);
     }
   }
 

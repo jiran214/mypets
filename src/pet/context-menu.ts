@@ -3,8 +3,8 @@ import { emit } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { ANIMATIONS } from './animation-data';
-import type { SpriteRenderer } from './renderer';
-import type { AnimationState } from './types';
+import type { SpriteRenderer } from '@/renderer';
+import type { AnimationState } from '@/types';
 
 const STATE_LABELS: Record<AnimationState, string> = {
   'idle': '待机',

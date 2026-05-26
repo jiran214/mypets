@@ -1,4 +1,4 @@
-import { loadPet } from './pet-loader';
+import { loadPet } from '@/pet/pet-loader';
 import type { PetMeta } from './types';
 
 const STORAGE_KEY = 'wimipet-workspaces-v1';

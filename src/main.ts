@@ -1,6 +1,6 @@
 import './style.css';
-import { initPetWindow } from './pet-window';
-import { ChatRuntime } from './chat-runtime';
+import { initPetWindow } from '@/pet/pet-window';
+import { ChatRuntime } from '@/ai/chat-runtime';
 import { mountManagerApp } from './manager-app';
 
 async function initManagerWindow(): Promise<void> {

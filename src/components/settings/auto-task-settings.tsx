@@ -1,13 +1,13 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { CalendarClock, History, MoreHorizontal, Pencil, Search, Trash2 } from 'lucide-react';
-import type { AiSessionSummary } from '@/ai-types';
+import type { AiSessionSummary } from '@/ai/ai-types';
 import type { ReadyPetWorkspace } from '@/workspaces';
 import type {
   AutoTask,
   AutoTaskIntervalUnit,
   AutoTaskSchedule,
   AutoTaskScheduleKind,
-} from '@/auto-tasks';
+} from '@/ai/auto-tasks';
 import {
   AUTO_TASK_NAME_MAX,
   AUTO_TASK_PROMPT_MAX,
@@ -19,7 +19,7 @@ import {
   normalizeAutoTask,
   scheduleSummary,
   weekdayLabel,
-} from '@/auto-tasks';
+} from '@/ai/auto-tasks';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {

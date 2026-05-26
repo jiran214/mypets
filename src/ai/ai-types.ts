@@ -105,6 +105,7 @@ export interface ChatMessagePart {
   kind: ChatPartKind;
   text: string;
   title?: string;
+  questionData?: ToolQuestionPartData;
 }
 
 export interface Conversation {

@@ -1,11 +1,11 @@
 import { emit, listen } from '@tauri-apps/api/event';
 import { getCurrentWindow, LogicalSize, PhysicalPosition, currentMonitor } from '@tauri-apps/api/window';
-import { SpriteRenderer } from './renderer';
+import { SpriteRenderer } from '@/renderer';
 import { setupContextMenu } from './context-menu';
 import { setupInteractions } from './interaction';
 import { loadPet } from './pet-loader';
-import { ChatRuntime } from './chat-runtime';
-import { mountChatUi, setupChatBubble } from './chat-ui';
+import { ChatRuntime } from '@/ai/chat-runtime';
+import { mountChatUi, setupChatBubble } from '@/ai/chat-ui';
 import { savePetPosition } from './pet-position';
 import { loadPetScale, savePetScale } from './pet-scale';
 
@@ -14,7 +14,7 @@ function requireElement<T extends HTMLElement>(id: string): T {
   if (!el) throw new Error(`Element #${id} not found`);
   return el as T;
 }
-import type { PetMeta } from './types';
+import type { PetMeta } from '@/types';
 
 interface PetSettingsEvent {
   folder: string;

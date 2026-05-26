@@ -1,9 +1,9 @@
 import { emit } from '@tauri-apps/api/event';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { PhysicalPosition, monitorFromPoint, primaryMonitor } from '@tauri-apps/api/window';
-import { loadAiState } from './ai-api';
-import type { AiSettings } from './ai-types';
-import { isReadyWorkspace, type PetWorkspace } from './workspaces';
+import { loadAiState } from '@/ai/ai-api';
+import type { AiSettings } from '@/ai/ai-types';
+import { isReadyWorkspace, type PetWorkspace } from '@/workspaces';
 import { loadPetPosition } from './pet-position';
 
 const PET_WINDOW_PREFIX = 'pet-';

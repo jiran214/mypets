@@ -7,9 +7,9 @@ import type {
   PiThinkingLevel,
   ProviderId,
   ThinkingIntensity,
-} from '@/ai-types';
+} from '@/ai/ai-types';
 import type { ReadyPetWorkspace } from '@/workspaces';
-import { loadPiProviderAuth, savePiProviderAuth } from '@/ai-api';
+import { loadPiProviderAuth, savePiProviderAuth } from '@/ai/ai-api';
 import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,

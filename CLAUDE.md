@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Wimi Pet 是一个 Tauri 2 桌面宠物应用——浮动、透明、置顶的精灵动画角色，支持多桌宠同时显示，内置 Claude AI 聊天功能。前端用 TypeScript + Vite + React + Canvas 2D 渲染，后端用 Rust 处理文件系统和 AI 调度。
 
+@./docs/CONTEXT.md
+
 ## 常用命令
 
 ```bash
@@ -69,7 +71,7 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 5. Rust 读取 stdout，通过 `app.emit("ai-chat-event", event)` 转发到前端
 6. 前端 `listenToAiChatEvents()` 监听事件，`ChatRuntime` 更新状态并通知 UI
 
-事件类型定义在 [ai-types.ts](src/ai-types.ts)：`status`、`session`、`part`、`delta`、`question`、`done`、`cancelled`、`error`。
+事件类型定义在 [ai-types.ts](src/ai/ai-types.ts)：`status`、`session`、`part`、`delta`、`question`、`done`、`cancelled`、`error`。
 
 - `question` 事件用于 Claude 请求用户输入（权限确认或多选问答），前端通过 `answerAiToolQuestion()` 回应
 - `cancelled` 事件在用户中断请求后触发
@@ -77,9 +79,13 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 AI 设置存储在每个工作空间的 `.wimipet/settings.json`，会话元数据在 `.wimipet/sessions/`，日志在 `.wimipet/logs/ai.log`。
 
 Rust AI 模块结构（`src-tauri/src/ai/`）：
-- `mod.rs` — 所有 `#[tauri::command]` 定义和核心逻辑
-- `ai_process.rs` — 子进程生命周期：spawn、PID 跟踪、SIGINT/taskkill 取消
-- `ai_storage.rs` — 存储路径解析、设置持久化、日志
+- `mod.rs` — 模块声明 + re-export
+- `ai_models.rs` — 所有结构体定义（`AiSettings`、`AiChatRequest`、`AutoTask` 等）+ 默认值
+- `ai_commands.rs` — 所有 `#[tauri::command]` 函数
+- `ai_payload.rs` — 发送给 Node 的 JSON payload 构造（纯函数）
+- `ai_runner.rs` — Node 子进程启动 + stdin/stdout 线程管理
+- `ai_process.rs` — 子进程生命周期：PID 跟踪、SIGINT/taskkill 取消
+- `ai_storage.rs` — 存储路径解析、设置持久化、会话元数据、日志
 - `ai_skills.rs` — 从文件系统发现 skill（SKILL.md 解析）
 
 ### 前端渲染
@@ -87,7 +93,7 @@ Rust AI 模块结构（`src-tauri/src/ai/`）：
 - **Canvas 2D 精灵动画**：单个 `<canvas>` 元素 (192x208 逻辑像素)，`SpriteRenderer` 使用 `requestAnimationFrame`，每帧独立时长，支持 DPR 缩放，自动裁剪透明边缘
 - **React 管理界面**：着陆页（manager-app.tsx）使用 React + Tailwind + shadcn/ui，包含侧边栏桌宠列表、聊天面板、设置面板
 - **React 聊天 UI**：聊天组件（chat-ui.tsx）使用 React，有两个挂载点：着陆页嵌入式面板和宠物模式气泡
-- 9 种动画状态定义在 [animation-data.ts](src/animation-data.ts)：idle、running-right、running-left、waving、jumping、failed、waiting、running、review
+- 9 种动画状态定义在 [animation-data.ts](src/pet/animation-data.ts)：idle、running-right、running-left、waving、jumping、failed、waiting、running、review
 - 精灵表为 8 列 x 9 行网格布局，每格 192x208 像素
 - `InteractionManager` 使用优先级槽管理动画状态（hover < drag），拖拽方向自动切换 running-left/right
 
@@ -124,6 +130,22 @@ Rust AI 模块结构（`src-tauri/src/ai/`）：
 - 右键菜单：通过 Tauri API 构建原生 OS 菜单（切换动画、设置、退出）
 - 宠物模式下可拖拽右下角 resize handle 缩放（0.6x–3x）
 
+### 前端目录结构
+
+`src/` 按职责分为两个子目录，根目录仅保留入口文件：
+
+- `src/ai/` — AI 聊天相关：`ai-api.ts`、`ai-types.ts`、`chat-runtime.ts`、`chat-ui.tsx`、`auto-tasks.ts`、`auto-task-scheduler.ts`、`file-drop-handler.ts`、`bubble-layout.ts`
+- `src/pet/` — 宠物相关：`pet-loader.ts`、`pet-windows.ts`、`pet-window.ts`、`pet-position.ts`、`pet-scale.ts`、`interaction.ts`、`context-menu.ts`、`animation-data.ts`
+- `src/` 根目录 — `main.ts`（入口）、`renderer.ts`（Canvas 渲染）、`types.ts`、`workspaces.ts`
+- `src/components/` — React 组件（`ui/` 基础组件、`ai-elements/` 聊天组件、`settings/` 设置组件）
+- `src/lib/` — 工具函数（`utils.ts`、`ai-utils.ts`、`ai-constants.ts`、`tauri-utils.ts`）
+- `src-node/` — Node.js AI runner（`claude-runner.mjs`、`run-claude.mjs`、`run-pi.mjs`、`run-codex.mjs`、`runner-utils.mjs`）
+
+导入规则：
+- 外部文件引用 AI/Pet 组使用 `@/ai/...` 或 `@/pet/...`
+- 组内互引保持相对路径（`./ai-types`、`./pet-loader`）
+- 引用根目录文件使用 `@/types`、`@/renderer`、`@/workspaces`
+
 ## TypeScript 配置
 
 `tsconfig.json` 启用了 `strict`、`noUnusedLocals`、`noUnusedParameters`，确保没有未使用的变量或参数。
@@ -154,3 +176,16 @@ AI 设置和会话存储在每个工作空间的 `.wimipet/` 目录下，Claude 
 - 提交信息：中文，简短描述
 - 只做关键测试
 - /docs/feature 为已完成功能，请勿主动读取
+
+## 修改 Settings 类型时的 Checklist
+
+Settings 类型（`AiSettings` 及其子类型）在三处有对应定义，修改时需同步：
+
+1. **Rust 结构体**: `src-tauri/src/ai/ai_models.rs` — `AiSettings`, `PiSettings`, `ClaudeSettings`, `CodexSettings`
+2. **TypeScript 接口**: `src/ai-types.ts` — `AiSettings`, `PiSettings`, `ClaudeSettings`, `CodexSettings`
+3. **Node payload 构造**: `src-tauri/src/ai/ai_payload.rs` — `build_chat_payload()` 中的 JSON 字段名
+
+修改步骤：
+- 三处字段名必须一致（Rust snake_case → TS/JSON camelCase）
+- 新增字段需在 Rust 侧添加 `#[serde(default)]`，在 `ai_payload.rs` 的 `build_chat_payload` 中添加对应 JSON 字段
+- 默认 persona 文字统一定义在 `src/lib/ai-constants.ts`（`DEFAULT_PET_PERSONA`），Rust 侧 `default_pet_persona()` 保持同步

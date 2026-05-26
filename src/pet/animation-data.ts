@@ -1,4 +1,4 @@
-import type { AnimationState, AnimationDef } from './types';
+import type { AnimationState, AnimationDef } from '@/types';
 
 export const CELL_W = 192;
 export const CELL_H = 208;

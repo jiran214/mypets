@@ -340,14 +340,16 @@ function handleAutomaticQuestion(
   saveConversation: () => void,
 ): void {
   const response = automaticQuestionResponse(event.question);
+  const questionData: ToolQuestionPartData = {
+    ...event.question,
+    status: 'answered',
+    response,
+  };
   appendPart(assistant, {
     kind: 'question',
     title: event.question.title || '自动任务需要确认',
-    text: JSON.stringify({
-      ...event.question,
-      status: 'answered',
-      response,
-    } satisfies ToolQuestionPartData),
+    text: JSON.stringify(questionData),
+    questionData,
   });
   appendPart(assistant, {
     kind: 'status',

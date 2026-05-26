@@ -1,5 +1,5 @@
-import { loadSpritesheet } from './pet-loader';
-import { ANIMATIONS, CELL_W, CELL_H } from './animation-data';
+import { loadSpritesheet } from '@/pet/pet-loader';
+import { ANIMATIONS, CELL_W, CELL_H } from '@/pet/animation-data';
 import type { AnimationState } from './types';
 
 export class SpriteRenderer {

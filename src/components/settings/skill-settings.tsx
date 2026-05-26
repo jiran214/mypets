@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { AiSettings, SkillInfo } from '@/ai-types';
+import type { AiSettings, SkillInfo } from '@/ai/ai-types';
 import type { ReadyPetWorkspace } from '@/workspaces';
-import { listSkills } from '@/ai-api';
+import { listSkills } from '@/ai/ai-api';
 import {
   FieldSet,
   FieldLegend,

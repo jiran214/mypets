@@ -1,7 +1,6 @@
-import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, normalize } from 'node:path';
+import { join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 import {
@@ -20,30 +19,7 @@ import {
   getActiveRequestId,
   setActiveAbortHandler,
 } from './claude-runner.mjs';
-
-function existingFile(path) {
-  try {
-    return existsSync(path) ? path : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function execText(command, args) {
-  try {
-    return execFileSync(command, args, { encoding: 'utf8', timeout: 3000 }).trim();
-  } catch {
-    return '';
-  }
-}
-
-function wherePaths(name) {
-  if (process.platform !== 'win32') return [];
-  return execText('where.exe', [name])
-    .split(/\r?\n/)
-    .map((path) => path.trim())
-    .filter(Boolean);
-}
+import { execText, wherePaths, findExecutable } from './runner-utils.mjs';
 
 function npmClaudePath() {
   const root = execText('npm', ['root', '-g']);
@@ -72,17 +48,7 @@ export function findClaudeExecutable() {
     );
   }
 
-  const seen = new Set();
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    const path = normalize(candidate);
-    if (seen.has(path)) continue;
-    seen.add(path);
-    const found = existingFile(path);
-    if (found) return found;
-  }
-
-  return undefined;
+  return findExecutable(candidates);
 }
 
 export async function runClaude(input) {

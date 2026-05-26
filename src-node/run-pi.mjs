@@ -1,7 +1,5 @@
-import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, normalize } from 'node:path';
+import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
 import {
@@ -19,50 +17,7 @@ import {
   setActiveAbortHandler,
   getActiveRequestId,
 } from './claude-runner.mjs';
-
-function existingFile(path) {
-  try {
-    return existsSync(path) ? path : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function execText(command, args) {
-  try {
-    return execFileSync(command, args, { encoding: 'utf8', timeout: 3000 }).trim();
-  } catch {
-    return '';
-  }
-}
-
-function wherePaths(name) {
-  if (process.platform !== 'win32') return [];
-  return execText('where.exe', [name])
-    .split(/\r?\n/)
-    .map((path) => path.trim())
-    .filter(Boolean);
-}
-
-function quoteWindowsArg(value) {
-  if (!/[\s"]/u.test(value)) return value;
-  return `"${value.replace(/"/g, '\\"')}"`;
-}
-
-function spawnExecutable(executable, args, options) {
-  if (process.platform === 'win32' && /\.(cmd|bat)$/iu.test(executable)) {
-    const command = [quoteWindowsArg(executable), ...args.map(quoteWindowsArg)].join(' ');
-    return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command], {
-      ...options,
-      windowsHide: true,
-    });
-  }
-
-  return spawn(executable, args, {
-    ...options,
-    windowsHide: true,
-  });
-}
+import { execText, wherePaths, spawnExecutable, findExecutable, createDisabledSkillNotice } from './runner-utils.mjs';
 
 function attachStrictJsonlReader(stream, onLine) {
   const decoder = new StringDecoder('utf8');
@@ -116,17 +71,7 @@ export function findPiExecutable() {
     );
   }
 
-  const seen = new Set();
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    const path = normalize(candidate);
-    if (seen.has(path)) continue;
-    seen.add(path);
-    const found = existingFile(path);
-    if (found) return found;
-  }
-
-  return undefined;
+  return findExecutable(candidates);
 }
 
 function createPiRpcConnection(child, options = {}) {
@@ -245,17 +190,6 @@ function buildPiArgs(settings) {
   return args;
 }
 
-function createPiDisabledSkillNotice(settings, allSkillNames) {
-  const disabled = Array.isArray(settings.disabledSkills) ? settings.disabledSkills.filter(Boolean) : [];
-  if (disabled.length === 0) return '';
-
-  const known = Array.isArray(allSkillNames) && allSkillNames.length > 0
-    ? disabled.filter((name) => allSkillNames.includes(name))
-    : disabled;
-  if (known.length === 0) return '';
-
-  return `本轮 Pi 集成已禁用这些 skills，请不要主动调用或加载它们：${known.join(', ')}。`;
-}
 
 function piPartFromToolName(toolName, fallbackKind = 'tool') {
   if (typeof toolName !== 'string') return fallbackKind;
@@ -559,7 +493,7 @@ export async function runPi(input) {
     await rpc.command('set_follow_up_mode', { mode: normalizePiQueueMode(piSettings.followUpMode) });
     await emitPiState();
 
-    const skillNotice = createPiDisabledSkillNotice(piSettings, input.allSkillNames);
+    const skillNotice = createDisabledSkillNotice('Pi', piSettings, input.allSkillNames);
     await rpc.command('prompt', {
       message: [skillNotice, buildPrompt(input, attachments)].filter(Boolean).join('\n\n'),
     });

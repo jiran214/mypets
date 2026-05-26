@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { FolderOpen, Trash2 } from 'lucide-react';
-import type { AiSettings } from '@/ai-types';
+import type { AiSettings } from '@/ai/ai-types';
 import type { PetWorkspace, ReadyPetWorkspace } from '@/workspaces';
 import { isReadyWorkspace } from '@/workspaces';
 import {

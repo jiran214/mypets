@@ -38,36 +38,33 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { ANIMATIONS, CELL_H, CELL_W } from './animation-data';
+import { DEFAULT_PET_PERSONA } from '@/lib/ai-constants';
+import { ANIMATIONS, CELL_H, CELL_W } from '@/pet/animation-data';
 import {
-  AUTO_TASK_MISSED_GRACE_MS,
-  computeNextRunAt,
   deleteAutoTask,
   listAutoTasks,
-  normalizeAutoTask,
-  runAutoTaskConversation,
   saveAutoTask,
   type AutoTask,
-  type AutoTaskRunStatus,
-} from './auto-tasks';
-import { saveAiSettings } from './ai-api';
-import type { ChatRuntime } from './chat-runtime';
-import { ChatPanel } from './chat-ui';
-import type { AiSessionSummary, AiSettings } from './ai-types';
+} from '@/ai/auto-tasks';
+import { AutoTaskScheduler, prepareAutoTaskForSave, upsertAutoTask } from '@/ai/auto-task-scheduler';
+import { saveAiSettings } from '@/ai/ai-api';
+import type { ChatRuntime } from '@/ai/chat-runtime';
+import { ChatPanel } from '@/ai/chat-ui';
+import type { AiSessionSummary, AiSettings } from '@/ai/ai-types';
 import {
   deletePetWorkspace,
   loadPet,
   loadSpritesheet,
   openWorkspaceInFileManager,
   pickPetFolder,
-} from './pet-loader';
+} from '@/pet/pet-loader';
 import {
   applyPetWindowSettings,
   hidePetWindow,
   setPetWindowTitle,
   showPetWindow,
   syncEnabledWorkspaces,
-} from './pet-windows';
+} from '@/pet/pet-windows';
 import {
   isReadyWorkspace,
   loadSavedWorkspaces,
@@ -78,7 +75,6 @@ import {
 
 const roots = new WeakMap<HTMLElement, Root>();
 const AVATAR_SIZE = 40;
-const DEFAULT_PET_PERSONA = '你是这个桌宠角色在用户电脑桌面上的人格化伙伴。你长期陪伴用户工作、学习和休息，语气自然、温和、有一点俏皮，但不喧宾夺主。你会把自己当作屏幕边缘的小生命：能观察用户给出的文字、任务和上下文，却不会假装看到屏幕上没有提供的信息。回答要优先简洁、可执行，用户焦虑时先帮他把问题拆小，用户专注时少打扰。你可以偶尔使用符合桌宠气质的短句和轻微拟声，但不要大量卖萌、不要刷表情。遇到技术问题时像可靠的同伴一样给出明确步骤；遇到情绪问题时先共情，再提出具体下一步。你不替用户做危险决定，不编造事实，不夸大能力。默认使用中文，除非用户要求其他语言。';
 const spritesheetCache = new Map<string, Promise<HTMLImageElement>>();
 
 type SettingsTab = 'general' | 'skin' | 'agent' | 'skills' | 'autoTasks';
@@ -111,7 +107,6 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
   const [, setRuntimeTick] = useState(0);
   const currentFolderRef = useRef(currentFolder);
   const autoTasksRef = useRef<AutoTask[]>([]);
-  const runningAutoTaskIdsRef = useRef(new Set<string>());
   const aiState = runtime.getAiState();
 
   const selectedWorkspace = useMemo(
@@ -251,117 +246,17 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
     const workspaceFolder = readyWorkspace?.folder;
     if (!workspaceFolder) return;
 
-    let disposed = false;
-
-    const persistRunnerTask = async (task: AutoTask): Promise<AutoTask | null> => {
-      try {
-        const saved = await saveAutoTask(workspaceFolder, task);
-        if (!disposed) {
-          setAutoTasks((current) => upsertAutoTask(current, saved));
-        }
-        return saved;
-      } catch (error) {
-        if (!disposed) {
-          setAutoTaskStatus(error instanceof Error ? error.message : String(error));
-        }
-        return null;
-      }
-    };
-
-    const markExpired = async (task: AutoTask, now: number, message: string): Promise<void> => {
-      await persistRunnerTask({
-        ...task,
-        lastStatus: 'expired',
-        lastStatusAt: now,
-        lastError: message,
-        nextRunAt: computeNextRunAt(task.schedule, now),
-        updatedAt: now,
-      });
-    };
-
-    const runDueTask = async (task: AutoTask): Promise<void> => {
-      runningAutoTaskIdsRef.current.add(task.id);
-      const startedAt = Date.now();
-      const runningTask = {
-        ...task,
-        lastRunAt: startedAt,
-        lastStatusAt: startedAt,
-        lastStatus: 'running' as AutoTaskRunStatus,
-        lastError: '',
-        currentConversationId: '',
-        updatedAt: startedAt,
-      };
-      const savedRunningTask = await persistRunnerTask(runningTask);
-      if (!savedRunningTask) {
-        runningAutoTaskIdsRef.current.delete(task.id);
-        return;
-      }
-
-      try {
-        const result = await runAutoTaskConversation(workspaceFolder, savedRunningTask);
-        const finishedAt = Date.now();
-        await persistRunnerTask({
-          ...savedRunningTask,
-          lastStatus: result.status === 'success' ? 'success' : 'failed',
-          lastError: result.error ?? '',
-          lastStatusAt: finishedAt,
-          nextRunAt: computeNextRunAt(savedRunningTask.schedule, finishedAt),
-          currentConversationId: result.conversationId,
-          runCount: savedRunningTask.runCount + 1,
-          updatedAt: finishedAt,
-        });
-        if (!disposed) {
-          void runtime.refreshSessions();
-        }
-      } catch (error) {
-        const failedAt = Date.now();
-        await persistRunnerTask({
-          ...savedRunningTask,
-          lastStatus: 'failed',
-          lastError: error instanceof Error ? error.message : String(error),
-          lastStatusAt: failedAt,
-          nextRunAt: computeNextRunAt(savedRunningTask.schedule, failedAt),
-          runCount: savedRunningTask.runCount + 1,
-          updatedAt: failedAt,
-        });
-      } finally {
-        runningAutoTaskIdsRef.current.delete(task.id);
-      }
-    };
-
-    const tick = (): void => {
-      const now = Date.now();
-      for (const task of autoTasksRef.current) {
-        if (!task.id || !task.enabled) continue;
-        if (runningAutoTaskIdsRef.current.has(task.id)) continue;
-
-        if (task.lastStatus === 'running') {
-          void markExpired(task, now, '上次执行被中断。');
-          continue;
-        }
-
-        const nextRunAt = task.nextRunAt ?? computeNextRunAt(task.schedule, now);
-        if (!task.nextRunAt) {
-          void persistRunnerTask({ ...task, nextRunAt, updatedAt: now });
-          continue;
-        }
-        if (nextRunAt > now) continue;
-
-        if (now - nextRunAt > AUTO_TASK_MISSED_GRACE_MS) {
-          void markExpired(task, now, '客户端未运行或系统休眠，已错过本次执行。');
-          continue;
-        }
-
-        void runDueTask(task);
-      }
-    };
-
-    tick();
-    const timer = window.setInterval(tick, 15_000);
+    const scheduler = new AutoTaskScheduler({
+      workspaceFolder,
+      runtime,
+      getTasks: () => autoTasksRef.current,
+      onTaskUpdate: (updater) => setAutoTasks(updater),
+      onStatusChange: (status) => setAutoTaskStatus(status),
+    });
+    scheduler.start();
 
     return () => {
-      disposed = true;
-      window.clearInterval(timer);
+      scheduler.stop();
     };
   }, [readyWorkspace?.folder, runtime]);
 
@@ -1007,31 +902,6 @@ function PetAvatar({ workspace }: { workspace: PetWorkspace }): ReactNode {
     />
   );
 }
-
-
-function upsertAutoTask(tasks: AutoTask[], task: AutoTask): AutoTask[] {
-  const normalized = normalizeAutoTask(task);
-  const index = tasks.findIndex((item) => item.id === normalized.id);
-  const next = index >= 0
-    ? tasks.map((item, itemIndex) => (itemIndex === index ? normalized : item))
-    : [normalized, ...tasks];
-  return next.sort((a, b) => b.updatedAt - a.updatedAt);
-}
-
-function prepareAutoTaskForSave(task: AutoTask): AutoTask {
-  const normalized = normalizeAutoTask(task);
-  const now = Date.now();
-  return {
-    ...normalized,
-    name: normalized.name.trim(),
-    prompt: normalized.prompt.trim(),
-    enabled: normalized.enabled,
-    updatedAt: now,
-    nextRunAt: normalized.enabled ? computeNextRunAt(normalized.schedule, now) : normalized.nextRunAt,
-    lastStatus: normalized.enabled && normalized.lastStatus === 'expired' ? 'idle' : normalized.lastStatus,
-  };
-}
-
 
 
 function defaultAiSettings(): AiSettings {

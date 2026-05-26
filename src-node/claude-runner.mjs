@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { runClaude, findClaudeExecutable } from './run-claude.mjs';
 import { runPi, findPiExecutable } from './run-pi.mjs';
 import { runCodex, findCodexExecutable } from './run-codex.mjs';
+import { existingFile } from './runner-utils.mjs';
 
 let activeRequestId = 'unknown';
 const MAX_INLINE_ATTACHMENT_BYTES = 256 * 1024;
@@ -98,13 +99,6 @@ export function asOptionalString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-export function existingFile(path) {
-  try {
-    return statSync(path) ? path : undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 function fileNameFromPath(path) {
   return path.split(/[\\/]/).filter(Boolean).pop() || path;
@@ -521,6 +515,9 @@ function parseProviderId(input) {
 
 async function main() {
   const input = await initialPayloadPromise;
+  if (!input.requestId || !input.settings || !input.providerId) {
+    throw new Error('Invalid payload: missing requestId, settings, or providerId');
+  }
   const providerId = parseProviderId(input);
   activeRequestId = input.requestId;
 

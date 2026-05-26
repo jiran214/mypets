@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { FolderOpen } from 'lucide-react';
-import type { AiSettings } from '@/ai-types';
+import type { AiSettings } from '@/ai/ai-types';
 import type { ReadyPetWorkspace } from '@/workspaces';
-import { loadSpritesheet } from '@/pet-loader';
-import { ANIMATIONS, CELL_W, CELL_H } from '@/animation-data';
+import { loadSpritesheet } from '@/pet/pet-loader';
+import { ANIMATIONS, CELL_W, CELL_H } from '@/pet/animation-data';
 import { Button } from '@/components/ui/button';
 import {
   FieldSet,

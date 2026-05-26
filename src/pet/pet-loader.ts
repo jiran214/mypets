@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import type { PetMeta } from './types';
+import type { PetMeta } from '@/types';
 
 export async function pickPetFolder(): Promise<string | null> {
   return open({

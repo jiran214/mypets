@@ -3,7 +3,7 @@ import type {
   ChatMessagePart,
   Conversation,
   ToolQuestionPartData,
-} from '@/ai-types';
+} from '@/ai/ai-types';
 
 export interface StoredConversation {
   title: string;
@@ -62,4 +62,9 @@ export function parseToolQuestionPartData(text: string): ToolQuestionPartData | 
   } catch {
     return null;
   }
+}
+
+export function getToolQuestionData(part: ChatMessagePart): ToolQuestionPartData | null {
+  if (part.questionData) return part.questionData;
+  return parseToolQuestionPartData(part.text);
 }
