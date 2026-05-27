@@ -5,11 +5,15 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { hasTauriRuntime, safeCurrentWindow } from '@/lib/tauri-utils';
 import { getToolQuestionData } from '@/lib/ai-utils';
 import {
+  Brain,
   Check,
   CalendarDays,
+  ChevronDown,
   CircleQuestionMark,
+  Clock,
   FileIcon,
   FileText,
+  FolderOpen,
   History,
   ListTodo,
   MessageCircle,
@@ -19,9 +23,9 @@ import {
   SendHorizontal,
   Sparkles,
   Timer,
+  Wrench,
   X,
 } from 'lucide-react';
-import type { ToolUIPart } from 'ai';
 import {
   Attachment,
   AttachmentInfo,
@@ -46,6 +50,12 @@ import {
   ReasoningContent,
   ReasoningTrigger,
 } from '@/components/ai-elements/reasoning';
+import { Shimmer } from '@/components/ai-elements/shimmer';
+import {
+  Task,
+  TaskContent,
+  TaskTrigger,
+} from '@/components/ai-elements/task';
 import {
   PromptInput,
   PromptInputBody,
@@ -57,12 +67,6 @@ import {
   PromptInputTools,
   type PromptInputMessage,
 } from '@/components/ai-elements/prompt-input';
-import {
-  Tool,
-  ToolContent,
-  ToolHeader,
-  ToolOutput,
-} from '@/components/ai-elements/tool';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -83,6 +87,7 @@ import type { ChatRuntime } from './chat-runtime';
 import type {
   AiSessionSummary,
   ChatAttachment,
+  ChatMessage,
   ChatMessagePart,
   ToolQuestionAnswerPayload,
   ToolQuestionItem,
@@ -102,6 +107,12 @@ import {
   type BubbleLayout,
   type Size,
 } from './bubble-layout';
+import { openFileWithDefaultApp } from './ai-api';
+import {
+  buildTimelineGroups,
+  type TimelineGroup,
+  type TimelineItem,
+} from './agent-timeline';
 const roots = new WeakMap<HTMLElement, Root>();
 
 export interface ChatBubbleController {
@@ -173,9 +184,8 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
   const hasWorkspace = runtime.hasWorkspace();
   const hasMessages = conversation.messages.length > 0;
   const sendDisabled = isStreaming || (!inputValue.trim() && attachments.length === 0) || !hasWorkspace;
-  const hasPendingQuestion = conversation.messages.some((message) => (
-    message.parts.some((part) => part.kind === 'question' && getToolQuestionData(part)?.status === 'pending')
-  ));
+  const pendingQuestions = pendingToolQuestionParts(conversation.messages);
+  const hasPendingQuestion = pendingQuestions.length > 0;
 
   const addAttachments = useCallback((incoming: ChatAttachment[]): void => {
     setAttachments((current) => {
@@ -506,6 +516,11 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
                 >
                   {message.role === 'assistant' && message.pending && message.parts.length === 0 ? (
                     <AssistantReasoningWait />
+                  ) : message.role === 'assistant' ? (
+                    <AssistantTimelineParts
+                      parts={message.parts}
+                      streaming={Boolean(message.pending)}
+                    />
                   ) : (
                     message.parts.map((part) => (
                       <ChatPartView
@@ -513,7 +528,6 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
                         part={part}
                         role={message.role}
                         streaming={Boolean(message.pending)}
-                        runtime={runtime}
                       />
                     ))
                   )}
@@ -534,77 +548,87 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
       {isChatView && (
         <div className="shrink-0 border-t bg-background">
           <div className={cn('p-3', compact && 'p-2.5')}>
-            <PromptInput
-              className={cn(dragActive && 'rounded-lg ring-2 ring-ring/30')}
-              multiple
-              onSubmit={submit}
-            >
-              {attachments.length > 0 && (
-                <PromptInputHeader>
-                  <Attachments variant="inline">
-                    {attachments.map((attachment) => (
-                      <Attachment
-                        key={attachment.id}
-                        data={chatAttachmentData(attachment)}
-                        draggable={false}
-                        onDragStart={(event) => event.preventDefault()}
-                        onRemove={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
-                      >
-                        <AttachmentPreview
-                          forceIcon
-                          fallbackIcon={attachment.kind === 'text'
-                            ? <FileText className="size-3 text-muted-foreground" />
-                            : <FileIcon className="size-3 text-muted-foreground" />}
-                        />
-                        <AttachmentInfo />
-                        <AttachmentRemove label={`移除 ${attachment.name}`} />
-                      </Attachment>
-                    ))}
-                  </Attachments>
-                </PromptInputHeader>
-              )}
-              <PromptInputBody>
-                <PromptInputTextarea
-                  value={inputValue}
-                  disabled={!hasWorkspace}
-                  readOnly={isStreaming}
-                  aria-disabled={isStreaming}
-                  tabIndex={isStreaming ? -1 : undefined}
-                  placeholder={hasWorkspace ? '输入消息，Enter 发送' : '先选择一个桌宠'}
-                  className={cn(
-                    'min-h-14 text-sm',
-                    compact && 'min-h-12 max-h-28',
-                    isStreaming && 'pointer-events-none cursor-default select-none',
-                  )}
-                  onChange={(event) => setInputValue(event.currentTarget.value)}
-                  onFocus={onInputFocus}
-                  onBlur={onInputBlur}
-                />
-              </PromptInputBody>
-              <PromptInputFooter>
-                <PromptInputTools>
-                  <PromptInputButton
-                    tooltip="添加文件"
-                    aria-disabled={isStreaming || !hasWorkspace}
-                    className={cn(isStreaming && 'pointer-events-none cursor-default opacity-50')}
+            {hasPendingQuestion ? (
+              <QuestionOverlay
+                compact={compact}
+                onInputBlur={onInputBlur}
+                onInputFocus={onInputFocus}
+                pendingQuestions={pendingQuestions}
+                runtime={runtime}
+              />
+            ) : (
+              <PromptInput
+                className={cn(dragActive && 'rounded-lg ring-2 ring-ring/30')}
+                multiple
+                onSubmit={submit}
+              >
+                {attachments.length > 0 && (
+                  <PromptInputHeader>
+                    <Attachments variant="inline">
+                      {attachments.map((attachment) => (
+                        <Attachment
+                          key={attachment.id}
+                          data={chatAttachmentData(attachment)}
+                          draggable={false}
+                          onDragStart={(event) => event.preventDefault()}
+                          onRemove={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                        >
+                          <AttachmentPreview
+                            forceIcon
+                            fallbackIcon={attachment.kind === 'text'
+                              ? <FileText className="size-3 text-muted-foreground" />
+                              : <FileIcon className="size-3 text-muted-foreground" />}
+                          />
+                          <AttachmentInfo />
+                          <AttachmentRemove label={`移除 ${attachment.name}`} />
+                        </Attachment>
+                      ))}
+                    </Attachments>
+                  </PromptInputHeader>
+                )}
+                <PromptInputBody>
+                  <PromptInputTextarea
+                    value={inputValue}
                     disabled={!hasWorkspace}
-                    onClick={() => {
-                      if (isStreaming) return;
-                      void pickFiles();
-                    }}
-                  >
-                    <Paperclip />
-                  </PromptInputButton>
-                </PromptInputTools>
-                <PromptInputSubmit
-                  aria-label={isStreaming ? '打断生成' : '发送消息'}
-                  disabled={!isStreaming && sendDisabled}
-                  status={isStreaming ? 'streaming' : 'ready'}
-                  title={isStreaming ? '打断生成' : '发送'}
-                  onStop={() => void runtime.interrupt()}
-                />
-              </PromptInputFooter>
-            </PromptInput>
+                    readOnly={isStreaming}
+                    aria-disabled={isStreaming}
+                    tabIndex={isStreaming ? -1 : undefined}
+                    placeholder={hasWorkspace ? '输入消息，Enter 发送' : '先选择一个桌宠'}
+                    className={cn(
+                      'min-h-14 text-sm',
+                      compact && 'min-h-12 max-h-28',
+                      isStreaming && 'pointer-events-none cursor-default select-none',
+                    )}
+                    onChange={(event) => setInputValue(event.currentTarget.value)}
+                    onFocus={onInputFocus}
+                    onBlur={onInputBlur}
+                  />
+                </PromptInputBody>
+                <PromptInputFooter>
+                  <PromptInputTools>
+                    <PromptInputButton
+                      tooltip="添加文件"
+                      aria-disabled={isStreaming || !hasWorkspace}
+                      className={cn(isStreaming && 'pointer-events-none cursor-default opacity-50')}
+                      disabled={!hasWorkspace}
+                      onClick={() => {
+                        if (isStreaming) return;
+                        void pickFiles();
+                      }}
+                    >
+                      <Paperclip />
+                    </PromptInputButton>
+                  </PromptInputTools>
+                  <PromptInputSubmit
+                    aria-label={isStreaming ? '打断生成' : '发送消息'}
+                    disabled={!isStreaming && sendDisabled}
+                    status={isStreaming ? 'streaming' : 'ready'}
+                    title={isStreaming ? '打断生成' : '发送'}
+                    onStop={() => void runtime.interrupt()}
+                  />
+                </PromptInputFooter>
+              </PromptInput>
+            )}
           </div>
         </div>
       )}
@@ -700,22 +724,40 @@ interface ChatPartViewProps {
   part: ChatMessagePart;
   role: 'user' | 'assistant';
   streaming: boolean;
-  runtime: ChatRuntime;
 }
 
 function AssistantReasoningWait(): ReactNode {
   return (
-    <Reasoning
-      className="mb-0 rounded-lg border border-border/70 bg-background/80 px-3 py-2"
-      defaultOpen
-      isStreaming
-    >
-      <ReasoningTrigger className="text-xs" />
-    </Reasoning>
+    <Shimmer as="span" className="text-sm text-muted-foreground">
+      正在思考...
+    </Shimmer>
   );
 }
 
-function ChatPartView({ part, role, streaming, runtime }: ChatPartViewProps): ReactNode {
+const SKIP_ANSWER_LABEL = '跳过';
+
+interface PendingToolQuestionPart {
+  partId: string;
+  data: ToolQuestionPartData;
+}
+
+function pendingToolQuestionParts(messages: ChatMessage[]): PendingToolQuestionPart[] {
+  const pending: PendingToolQuestionPart[] = [];
+
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.kind !== 'question') continue;
+      const data = getToolQuestionData(part);
+      if (data?.status === 'pending') {
+        pending.push({ partId: part.id, data });
+      }
+    }
+  }
+
+  return pending;
+}
+
+function ChatPartView({ part, role, streaming }: ChatPartViewProps): ReactNode {
   if (part.kind === 'status' && part.title === '会话') return null;
 
   if (role === 'user') {
@@ -743,47 +785,6 @@ function ChatPartView({ part, role, streaming, runtime }: ChatPartViewProps): Re
     return <MessageResponse isAnimating={streaming}>{part.text}</MessageResponse>;
   }
 
-  if (part.kind === 'thinking') {
-    return (
-      <Reasoning
-        className="mb-0 rounded-lg border border-border/70 bg-background/80 px-3 py-2"
-        defaultOpen={streaming}
-        isStreaming={streaming}
-      >
-        <ReasoningTrigger className="text-xs" />
-        {part.text.trim() && (
-          <ReasoningContent className="mt-3 text-xs leading-relaxed">
-            {part.text}
-          </ReasoningContent>
-        )}
-      </Reasoning>
-    );
-  }
-
-  if (part.kind === 'tool' || part.kind === 'mcp' || part.kind === 'skill') {
-    return <ToolPartView part={part} streaming={streaming} />;
-  }
-
-  if (part.kind === 'question') {
-    return <ToolQuestionPartView part={part} runtime={runtime} streaming={streaming} />;
-  }
-
-  if (part.kind === 'path') {
-    return (
-      <div className="rounded-lg border border-border/70 bg-background/80 px-3 py-2 text-sm">
-        <PathText value={part.text} />
-      </div>
-    );
-  }
-
-  if (part.kind === 'status') {
-    return (
-      <div className="rounded-lg bg-muted/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-        <MessageResponse isAnimating={streaming}>{part.text}</MessageResponse>
-      </div>
-    );
-  }
-
   return (
     <div className="rounded-lg text-sm">
       <MessageResponse isAnimating={streaming}>{part.text}</MessageResponse>
@@ -791,56 +792,312 @@ function ChatPartView({ part, role, streaming, runtime }: ChatPartViewProps): Re
   );
 }
 
-function ToolQuestionPartView({
+function AssistantTimelineParts({
+  parts,
+  streaming,
+}: {
+  parts: ChatMessagePart[];
+  streaming: boolean;
+}): ReactNode {
+  const blocks = buildTimelineGroups(parts);
+
+  return blocks.map((block) => {
+    if (block.type === 'text') {
+      return (
+        <div className="rounded-lg text-sm" key={block.part.id}>
+          <MessageResponse isAnimating={streaming}>{block.part.text}</MessageResponse>
+        </div>
+      );
+    }
+
+    if (block.type === 'thinking') {
+      return (
+        <DeepThinkingView
+          key={block.part.id}
+          part={block.part}
+        />
+      );
+    }
+
+    if (block.type === 'question') {
+      return <ToolQuestionPartView key={block.part.id} part={block.part} />;
+    }
+
+    return (
+      <TimelineGroupView
+        key={block.group.id}
+        group={block.group}
+        streaming={streaming}
+      />
+    );
+  });
+}
+
+function DeepThinkingView({ part }: { part: ChatMessagePart }): ReactNode {
+  return (
+    <Reasoning
+      className="mb-0 rounded-md border border-border/60 bg-muted/20 px-3 py-2"
+      defaultOpen={false}
+      isStreaming={false}
+    >
+      <ReasoningTrigger
+        className="text-sm"
+        getThinkingMessage={() => <p className="font-medium">已深度思考</p>}
+      />
+      <ReasoningContent className="mt-3 text-xs leading-relaxed">
+        {part.text}
+      </ReasoningContent>
+    </Reasoning>
+  );
+}
+
+function TimelineGroupView({
+  group,
+  streaming,
+}: {
+  group: TimelineGroup;
+  streaming: boolean;
+}): ReactNode {
+  const partCount = group.items.reduce((count, item) => count + item.parts.length, 0);
+
+  return (
+    <Task
+      className="rounded-md border border-border/60 bg-muted/20 px-3 py-2"
+      defaultOpen={streaming}
+    >
+      <TaskTrigger title="调用工具">
+        <div className="flex w-full cursor-pointer items-center justify-between gap-3 text-muted-foreground transition-colors hover:text-foreground">
+          <div className="flex min-w-0 items-center gap-2">
+            <Wrench className="size-4 shrink-0" />
+            <span className="truncate text-sm font-medium">调用工具</span>
+            <Badge variant="secondary" className="shrink-0 rounded-full text-[11px]">
+              {partCount} 条
+            </Badge>
+            {streaming && (
+              <Badge variant="outline" className="shrink-0 rounded-full text-[11px]">
+                运行中
+              </Badge>
+            )}
+          </div>
+          <ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+        </div>
+      </TaskTrigger>
+      <TaskContent className="text-xs">
+        {group.items.map((item) => (
+          <TimelineItemView
+            key={item.id}
+            item={item}
+            streaming={streaming}
+          />
+        ))}
+      </TaskContent>
+    </Task>
+  );
+}
+
+function TimelineItemView({
+  item,
+  streaming,
+}: {
+  item: TimelineItem;
+  streaming: boolean;
+}): ReactNode {
+  return (
+    <Task
+      className="rounded-md bg-background/70 px-2.5 py-2"
+      defaultOpen={false}
+    >
+      <TaskTrigger title={item.title}>
+        <div className="flex w-full cursor-pointer items-center justify-between gap-2 text-muted-foreground transition-colors hover:text-foreground">
+          <div className="flex min-w-0 items-center gap-2">
+            {timelineKindIcon(item.kind)}
+            <span className="truncate text-xs font-medium">{item.title}</span>
+            {item.parts.length > 1 && (
+              <Badge variant="secondary" className="shrink-0 rounded-full text-[10px]">
+                {item.parts.length} 次
+              </Badge>
+            )}
+          </div>
+          <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+        </div>
+      </TaskTrigger>
+      <TaskContent className="text-xs">
+        {item.parts.map((part, index) => (
+          <TimelinePartDetail
+            key={part.id}
+            index={item.parts.length > 1 ? index + 1 : undefined}
+            part={part}
+            streaming={streaming}
+          />
+        ))}
+      </TaskContent>
+    </Task>
+  );
+}
+
+function TimelinePartDetail({
   part,
-  runtime,
+  index,
   streaming,
 }: {
   part: ChatMessagePart;
-  runtime: ChatRuntime;
+  index?: number;
   streaming: boolean;
 }): ReactNode {
-  const data = getToolQuestionData(part);
-  if (!data) {
-    return <ToolPartView part={{ ...part, kind: 'tool' }} streaming={streaming} />;
+  if (part.kind === 'path') {
+    return (
+      <div className="space-y-1.5">
+        {index && <div className="text-[11px] text-muted-foreground">#{index}</div>}
+        <PathOpenButton path={part.text} title={part.title} />
+      </div>
+    );
   }
 
-  const state = data.status === 'answered'
-    ? 'approval-responded'
-    : data.status === 'error'
-      ? 'output-error'
-      : 'approval-requested';
+  if (!part.text.trim()) return null;
 
   return (
-    <Tool
-      className="mb-0 border-border/70 bg-background/80 shadow-none"
-      defaultOpen={data.status !== 'answered'}
+    <div className="space-y-1.5 rounded-md bg-muted/30 px-2.5 py-2 leading-relaxed">
+      {index && <div className="text-[11px] text-muted-foreground">#{index}</div>}
+      <MessageResponse isAnimating={streaming}>{part.text}</MessageResponse>
+    </div>
+  );
+}
+
+function PathOpenButton({ path, title }: { path: string; title?: string }): ReactNode {
+  const trimmed = path.trim();
+  if (!trimmed) return null;
+
+  return (
+    <button
+      type="button"
+      className="flex w-full min-w-0 items-center gap-2 rounded-md bg-muted/40 px-2.5 py-2 text-left font-mono text-xs text-foreground transition-colors hover:bg-muted"
+      title={trimmed}
+      onClick={() => {
+        void openFileWithDefaultApp(trimmed).catch((error) => {
+          console.warn('Failed to open path:', error);
+        });
+      }}
     >
-      <ToolHeader
-        className="p-2.5"
-        state={state}
-        title={data.title || (data.kind === 'permission' ? `确认 ${data.toolName}` : '需要你的选择')}
-        type={'tool-question' as ToolUIPart['type']}
+      <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate">{title || trimmed}</span>
+    </button>
+  );
+}
+
+function timelineKindIcon(kind: ChatMessagePart['kind']): ReactNode {
+  if (kind === 'thinking') return <Brain className="size-3.5 shrink-0" />;
+  if (kind === 'path') return <FolderOpen className="size-3.5 shrink-0" />;
+  if (kind === 'status') return <Clock className="size-3.5 shrink-0" />;
+  if (kind === 'plan') return <Sparkles className="size-3.5 shrink-0" />;
+  return <Wrench className="size-3.5 shrink-0" />;
+}
+
+function ToolQuestionPartView({ part }: { part: ChatMessagePart }): ReactNode {
+  const data = getToolQuestionData(part);
+  if (!data || data.status === 'pending') return null;
+
+  const title = data.title || (data.kind === 'permission' ? `确认 ${data.toolName}` : '需要你的选择');
+
+  return (
+    <Task
+      className="rounded-md border border-border/60 bg-background/70 px-3 py-2"
+      defaultOpen={data.status === 'error'}
+    >
+      <TaskTrigger title={title}>
+        <div className="flex w-full cursor-pointer items-center justify-between gap-3 text-muted-foreground transition-colors hover:text-foreground">
+          <div className="flex min-w-0 items-center gap-2">
+            <CircleQuestionMark className="size-4 shrink-0" />
+            <span className="truncate text-sm font-medium">{title}</span>
+            <Badge variant={data.status === 'error' ? 'destructive' : 'secondary'} className="shrink-0 rounded-full text-[11px]">
+              {questionSummaryStatus(data)}
+            </Badge>
+          </div>
+          <ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+        </div>
+      </TaskTrigger>
+      <TaskContent className="text-xs">
+        {data.description && (
+          <div className="rounded-md bg-muted/30 px-2.5 py-2 leading-relaxed text-muted-foreground">
+            {data.description}
+          </div>
+        )}
+        <ToolQuestionAnswerSummary response={data.response} />
+        {data.error && (
+          <div className="rounded-md bg-destructive/10 px-2.5 py-2 text-destructive">{data.error}</div>
+        )}
+      </TaskContent>
+    </Task>
+  );
+}
+
+function QuestionOverlay({
+  compact,
+  onInputBlur,
+  onInputFocus,
+  pendingQuestions,
+  runtime,
+}: {
+  compact?: boolean;
+  onInputBlur?: () => void;
+  onInputFocus?: () => void;
+  pendingQuestions: PendingToolQuestionPart[];
+  runtime: ChatRuntime;
+}): ReactNode {
+  const current = pendingQuestions[0];
+  if (!current) return null;
+
+  const title = current.data.title || (current.data.kind === 'permission' ? `确认 ${current.data.toolName}` : '需要你的选择');
+  return (
+    <div className={cn('rounded-lg border border-border/80 bg-muted/20 p-3 shadow-sm', compact && 'p-2.5')}>
+      <div className="mb-3 flex items-start gap-2">
+        <Badge variant="secondary" className="mt-0.5 shrink-0 rounded-full">
+          1/{pendingQuestions.length}
+        </Badge>
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <CircleQuestionMark className="size-4 shrink-0 text-muted-foreground" />
+            <div className="truncate text-sm font-medium">{title}</div>
+          </div>
+          {current.data.description && (
+            <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{current.data.description}</p>
+          )}
+        </div>
+      </div>
+      <ToolQuestionForm
+        compact={compact}
+        data={current.data}
+        key={current.partId}
+        onInputBlur={onInputBlur}
+        onInputFocus={onInputFocus}
+        onSkip={() => {
+          void runtime.answerToolQuestion(current.partId, current.data.id, buildSkipQuestionResponse(current.data));
+        }}
+        partId={current.partId}
+        runtime={runtime}
+        submitLabel="提交"
       />
-      <ToolContent className="p-3 pt-0">
-        <ToolQuestionForm
-          data={data}
-          partId={part.id}
-          runtime={runtime}
-        />
-      </ToolContent>
-    </Tool>
+    </div>
   );
 }
 
 function ToolQuestionForm({
+  compact,
   data,
+  onInputBlur,
+  onInputFocus,
+  onSkip,
   partId,
   runtime,
+  submitLabel = '回答',
 }: {
+  compact?: boolean;
   data: ToolQuestionPartData;
+  onInputBlur?: () => void;
+  onInputFocus?: () => void;
+  onSkip?: () => void;
   partId: string;
   runtime: ChatRuntime;
+  submitLabel?: string;
 }): ReactNode {
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [customAnswers, setCustomAnswers] = useState<Record<string, string>>({});
@@ -919,7 +1176,7 @@ function ToolQuestionForm({
         const preview = activePreviews[key] || selectedPreview(question, answers, activePreviews);
 
         return (
-          <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 p-2.5" key={`${question.question}-${index}`}>
+          <div className={cn('space-y-2 rounded-md bg-muted/30 p-2.5', compact && 'p-2')} key={`${question.question}-${index}`}>
             <div className="flex items-start gap-2">
               <Badge variant="secondary" className="mt-0.5 shrink-0">{question.header || `问题 ${index + 1}`}</Badge>
               <p className="min-w-0 flex-1 text-sm font-medium leading-relaxed">{question.question}</p>
@@ -968,6 +1225,8 @@ function ToolQuestionForm({
                 placeholder={question.multiSelect ? '可补充一个自定义选项' : '选择其他答案时填写'}
                 className="min-h-10 resize-none rounded-md text-xs"
                 onChange={(event) => updateCustomAnswer(question, event.currentTarget.value)}
+                onBlur={onInputBlur}
+                onFocus={onInputFocus}
               />
             </div>
           </div>
@@ -980,15 +1239,28 @@ function ToolQuestionForm({
         <span className="text-xs text-muted-foreground">
           {data.status === 'submitting' ? '正在回传...' : '选择会继续当前回复'}
         </span>
-        <Button
-          type="button"
-          size="sm"
-          disabled={!canSubmit || disabled}
-          onClick={submitAnswer}
-        >
-          <SendHorizontal data-icon="inline-start" />
-          回答
-        </Button>
+        <div className="flex shrink-0 items-center justify-end gap-2">
+          {onSkip && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={disabled}
+              onClick={onSkip}
+            >
+              跳过
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            disabled={!canSubmit || disabled}
+            onClick={submitAnswer}
+          >
+            <SendHorizontal data-icon="inline-start" />
+            {submitLabel}
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -1005,38 +1277,38 @@ function ToolQuestionAnswerSummary({ response }: { response?: ToolQuestionAnswer
       {entries.map(([question, answer]) => (
         <div className="rounded-md bg-muted/40 px-2.5 py-2 text-xs" key={question}>
           <div className="mb-1 text-muted-foreground">{question}</div>
-          <div className="font-medium text-foreground">{answer.join(', ')}</div>
+          <div className="font-medium text-foreground">{formatQuestionAnswer(answer)}</div>
         </div>
       ))}
     </div>
   );
 }
 
-function ToolPartView({ part, streaming }: { part: ChatMessagePart; streaming: boolean }): ReactNode {
-  const content = (
-    <MessageResponse isAnimating={streaming}>
-      {part.text}
-    </MessageResponse>
-  );
-
-  return (
-    <Tool
-      className="mb-0 border-border/70 bg-background/80 shadow-none"
-      defaultOpen={streaming}
-    >
-      <ToolHeader
-        className="p-2.5"
-        state={streaming ? 'input-available' : 'output-available'}
-        title={part.title || toolDisplayName(part.kind)}
-        type={toolUiType(part)}
-      />
-      <ToolContent className="p-3 pt-0">
-        <ToolOutput output={content as ToolUIPart['output']} errorText={undefined} />
-      </ToolContent>
-    </Tool>
-  );
+function buildSkipQuestionResponse(data: ToolQuestionPartData): ToolQuestionAnswerPayload {
+  const response: ToolQuestionAnswerPayload = { answers: {}, annotations: {} };
+  for (const question of data.questions) {
+    response.answers[question.question] = [SKIP_ANSWER_LABEL];
+    response.annotations![question.question] = { notes: '用户跳过了这个问题。' };
+  }
+  return response;
 }
 
+function questionSummaryStatus(data: ToolQuestionPartData): string {
+  if (data.status === 'error') return '失败';
+  if (data.status === 'submitting') return '回传中';
+  if (questionResponseWasSkipped(data.response)) return '已跳过';
+  return '已回答';
+}
+
+function questionResponseWasSkipped(response?: ToolQuestionAnswerPayload): boolean {
+  const answers = Object.values(response?.answers ?? {});
+  return answers.length > 0 && answers.every((answer) => answer.length === 1 && answer[0] === SKIP_ANSWER_LABEL);
+}
+
+function formatQuestionAnswer(answer: string[]): string {
+  if (answer.length === 1 && answer[0] === SKIP_ANSWER_LABEL) return '已跳过';
+  return answer.join(', ');
+}
 
 function questionAnswerValues(
   question: ToolQuestionItem,
@@ -1059,23 +1331,6 @@ function selectedPreview(
   const selected = answers[question.question] ?? [];
   const option = question.options.find((item) => selected.includes(item.label) && item.preview);
   return option?.preview ?? '';
-}
-
-function PathText({ value }: { value: string }): ReactNode {
-  const pattern = /([A-Za-z]:\\[^\s<>"']+|(?:\.{1,2}\/|\/)[^\s<>"']+)/g;
-  const nodes: ReactNode[] = [];
-  let lastIndex = 0;
-
-  for (const match of value.matchAll(pattern)) {
-    const path = match[0];
-    const index = match.index ?? 0;
-    nodes.push(value.slice(lastIndex, index));
-    nodes.push(<span className="rounded bg-muted px-1 font-mono text-xs" key={`${path}-${index}`}>{path}</span>);
-    lastIndex = index + path.length;
-  }
-
-  nodes.push(value.slice(lastIndex));
-  return <>{nodes}</>;
 }
 
 export function setupChatBubble(stage: HTMLElement, canvas: HTMLCanvasElement): ChatBubbleController {
@@ -1240,14 +1495,4 @@ function formatSessionTime(value: number): string {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
-}
-
-function toolUiType(part: ChatMessagePart): ToolUIPart['type'] {
-  return `tool-${part.kind}` as ToolUIPart['type'];
-}
-
-function toolDisplayName(kind: ChatMessagePart['kind']): string {
-  if (kind === 'mcp') return 'MCP 调用';
-  if (kind === 'skill') return 'Skill';
-  return '工具调用';
 }

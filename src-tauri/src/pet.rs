@@ -131,17 +131,40 @@ pub fn delete_pet_workspace(folder: String) -> Result<(), String> {
 #[tauri::command]
 pub fn open_workspace_in_file_manager(folder: String) -> Result<(), String> {
     let folder_path = validate_pet_folder(&folder)?;
+    open_directory_in_file_manager(&folder_path)
+}
 
+#[tauri::command]
+pub fn open_file_with_default_app(path: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("Path is required".to_string());
+    }
+
+    let path_buf = PathBuf::from(path.trim());
+    let canonical =
+        std::fs::canonicalize(&path_buf).map_err(|e| format!("Cannot resolve path: {e}"))?;
+
+    if canonical.is_dir() {
+        return open_directory_in_file_manager(&canonical);
+    }
+    if !canonical.is_file() {
+        return Err(format!("Path is not a file: {}", canonical.display()));
+    }
+
+    open::that(&canonical).map_err(|e| format!("Cannot open file: {e}"))
+}
+
+fn open_directory_in_file_manager(folder_path: &Path) -> Result<(), String> {
     #[cfg(target_os = "windows")]
-    let result = Command::new("explorer").arg(&folder_path).spawn();
+    let result = Command::new("explorer").arg(folder_path).spawn();
 
     #[cfg(target_os = "macos")]
-    let result = Command::new("open").arg(&folder_path).spawn();
+    let result = Command::new("open").arg(folder_path).spawn();
 
     #[cfg(all(unix, not(target_os = "macos")))]
-    let result = Command::new("xdg-open").arg(&folder_path).spawn();
+    let result = Command::new("xdg-open").arg(folder_path).spawn();
 
     result
         .map(|_| ())
-        .map_err(|e| format!("Cannot open workspace folder: {e}"))
+        .map_err(|e| format!("Cannot open folder: {e}"))
 }

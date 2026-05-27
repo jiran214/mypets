@@ -106,6 +106,7 @@ pub fn run() {
             pet::load_pet,
             pet::load_spritesheet,
             pet::open_workspace_in_file_manager,
+            pet::open_file_with_default_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

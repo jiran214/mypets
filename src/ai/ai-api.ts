@@ -64,6 +64,10 @@ export function answerAiToolQuestion(request: AiToolQuestionAnswerRequest): Prom
   return invoke<void>('answer_ai_tool_question', { request });
 }
 
+export function openFileWithDefaultApp(path: string): Promise<void> {
+  return invoke<void>('open_file_with_default_app', { path });
+}
+
 export async function listenToAiChatEvents(handler: (event: AiChatEvent) => void): Promise<UnlistenFn> {
   if (!hasTauriRuntime()) {
     return () => {};
