@@ -104,7 +104,6 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
   const [autoTasks, setAutoTasks] = useState<AutoTask[]>([]);
   const [autoTaskStatus, setAutoTaskStatus] = useState('');
   const [loading, setLoading] = useState(true);
-  const [, setRuntimeTick] = useState(0);
   const currentFolderRef = useRef(currentFolder);
   const autoTasksRef = useRef<AutoTask[]>([]);
   const aiState = runtime.getAiState();
@@ -309,8 +308,29 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
     settingsInitializedRef.current = true;
   }, [readyWorkspace]);
 
+  const initializedFolderRef = useRef<string>('');
+
+  useEffect(() => {
+    const folder = readyWorkspace?.folder;
+    if (!folder) {
+      initializedFolderRef.current = '';
+      return;
+    }
+    if (initializedFolderRef.current === folder) return;
+    initializedFolderRef.current = folder;
+
+    const freshState = runtime.getAiState();
+    if (freshState) {
+      autoSavingRef.current = true;
+      setSettingsDraft(normalizeSettings(freshState.settings));
+      setSettingsStatus('');
+      autoSavingRef.current = false;
+    }
+  }, [readyWorkspace, runtime]);
+
   useEffect(() => {
     if (!settingsInitializedRef.current || !readyWorkspace) return;
+    if (initializedFolderRef.current !== readyWorkspace.folder) return;
 
     let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -339,7 +359,7 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
         clearTimeout(saveTimer);
       }
     };
-  }, [settingsDraft, runtime]);
+  }, [settingsDraft, readyWorkspace, runtime]);
 
   useEffect(() => {
     const name = settingsDraft.displayName.trim();
@@ -356,10 +376,6 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
     });
     void setPetWindowTitle(folder, name);
   }, [settingsDraft.displayName, readyWorkspace?.folder, readyWorkspace?.meta.displayName]);
-
-  useEffect(() => runtime.subscribe(() => {
-    setRuntimeTick((version) => version + 1);
-  }), [runtime]);
 
   useEffect(() => {
     if (autoSavingRef.current) return;

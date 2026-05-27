@@ -1,13 +1,14 @@
 import { getCurrentWindow, LogicalSize, PhysicalPosition } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import { createRoot, type Root } from 'react-dom/client';
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { hasTauriRuntime, safeCurrentWindow } from '@/lib/tauri-utils';
 import { getToolQuestionData } from '@/lib/ai-utils';
 import {
   Brain,
   Check,
   CalendarDays,
+  Lightbulb,
   ChevronDown,
   CircleQuestionMark,
   Clock,
@@ -107,7 +108,7 @@ import {
   type BubbleLayout,
   type Size,
 } from './bubble-layout';
-import { openFileWithDefaultApp } from './ai-api';
+import { openFileWithDefaultApp, saveAiSettings } from './ai-api';
 import {
   buildTimelineGroups,
   type TimelineGroup,
@@ -166,8 +167,62 @@ export function mountChatUi(
   );
 }
 
+const THINKING_LEVELS: Record<string, readonly string[]> = {
+  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
+  pi: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+  codex: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+};
+
+function ThinkingSelector({ runtime, disabled }: { runtime: ChatRuntime; disabled?: boolean }): ReactNode {
+  const aiState = runtime.getAiState();
+  if (!aiState) return null;
+
+  const { providerId, pi, claude, codex } = aiState.settings;
+  const levels = THINKING_LEVELS[providerId] ?? THINKING_LEVELS.claude;
+  const currentLevel = providerId === 'pi' ? pi.thinkingLevel
+    : providerId === 'codex' ? codex.reasoningEffort
+    : claude.thinkingIntensity;
+
+  const handleChange = async (level: string) => {
+    const settings = { ...aiState.settings };
+    if (providerId === 'pi') {
+      settings.pi = { ...settings.pi, thinkingLevel: level as typeof pi.thinkingLevel };
+    } else if (providerId === 'codex') {
+      settings.codex = { ...settings.codex, reasoningEffort: level as typeof codex.reasoningEffort };
+    } else {
+      settings.claude = { ...settings.claude, thinkingIntensity: level as typeof claude.thinkingIntensity };
+    }
+    const newState = await saveAiSettings(runtime.getWorkspaceFolder(), settings);
+    runtime.setAiState(newState);
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <PromptInputButton
+          tooltip="思考强度"
+          disabled={disabled}
+          aria-disabled={disabled}
+          className={cn(disabled && 'pointer-events-none cursor-default opacity-50')}
+        >
+          <Lightbulb />
+        </PromptInputButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent side="top" align="start" sideOffset={6}>
+        <DropdownMenuRadioGroup value={currentLevel} onValueChange={(v) => { void handleChange(v); }}>
+          {levels.map((level) => (
+            <DropdownMenuRadioItem key={level} value={level} className="text-xs">
+              {level}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function ChatPanel({ runtime, compact = false, variant, petName, onInputFocus, onInputBlur, onDragActive }: ChatPanelProps): ReactNode {
-  const [, forceRender] = useState(0);
+  const [renderVersion, forceRender] = useState(0);
   const [inputValue, setInputValue] = useState('');
   const [activeView, setActiveView] = useState<ToolView>('chat');
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -182,10 +237,66 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
   const conversation = runtime.getConversation();
   const isStreaming = runtime.isStreaming();
   const hasWorkspace = runtime.hasWorkspace();
-  const hasMessages = conversation.messages.length > 0;
   const sendDisabled = isStreaming || (!inputValue.trim() && attachments.length === 0) || !hasWorkspace;
   const pendingQuestions = pendingToolQuestionParts(conversation.messages);
   const hasPendingQuestion = pendingQuestions.length > 0;
+
+  const conversationTree = useMemo(() => {
+    const messages = conversation.messages;
+    const hasMessages = messages.length > 0;
+
+    return (
+      <Conversation className={cn('min-h-0', isBubble ? 'bg-muted/20' : 'bg-background')}>
+        <ConversationContent className={cn('min-h-full gap-5 p-4', compact && 'gap-4 p-3', !hasMessages && 'justify-center')}>
+          {!hasMessages && (
+            <ConversationEmptyState
+              icon={<Sparkles />}
+              title={hasWorkspace ? `开始和${petName ?? '桌宠'}聊天` : '请选择桌宠'}
+              description={hasWorkspace ? 'Hello World!' : '从左侧列表选择一个可用桌宠后即可对话。'}
+            />
+          )}
+          {messages.map((message) => (
+            <Message
+              key={message.id}
+              from={message.role}
+              className={cn(
+                message.role === 'assistant'
+                  ? 'max-w-full'
+                  : compact ? 'max-w-[94%]' : 'max-w-[82%]',
+                message.error && 'text-destructive',
+              )}
+            >
+              <MessageContent
+                className={cn(
+                  'text-[13px] leading-relaxed',
+                  message.role === 'assistant' && 'w-full max-w-full',
+                )}
+              >
+                {message.role === 'assistant' && message.pending && message.parts.length === 0 ? (
+                  <AssistantReasoningWait />
+                ) : message.role === 'assistant' ? (
+                  <AssistantTimelineParts
+                    parts={message.parts}
+                    streaming={Boolean(message.pending)}
+                  />
+                ) : (
+                  message.parts.map((part) => (
+                    <ChatPartView
+                      key={part.id}
+                      part={part}
+                      role={message.role}
+                      streaming={Boolean(message.pending)}
+                    />
+                  ))
+                )}
+              </MessageContent>
+            </Message>
+          ))}
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
+    );
+  }, [renderVersion, compact, isBubble, hasWorkspace, petName]);
 
   const addAttachments = useCallback((incoming: ChatAttachment[]): void => {
     setAttachments((current) => {
@@ -487,57 +598,7 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
         </div>
       </div>
 
-      {isChatView ? (
-        <Conversation className={cn('min-h-0', isBubble ? 'bg-muted/20' : 'bg-background')}>
-          <ConversationContent className={cn('min-h-full gap-5 p-4', compact && 'gap-4 p-3', !hasMessages && 'justify-center')}>
-            {!hasMessages && (
-              <ConversationEmptyState
-                icon={<Sparkles />}
-                title={hasWorkspace ? `开始和${petName ?? '桌宠'}聊天` : '请选择桌宠'}
-                description={hasWorkspace ? 'Hello World!' : '从左侧列表选择一个可用桌宠后即可对话。'}
-              />
-            )}
-            {conversation.messages.map((message) => (
-              <Message
-                key={message.id}
-                from={message.role}
-                className={cn(
-                  message.role === 'assistant'
-                    ? 'max-w-full'
-                    : compact ? 'max-w-[94%]' : 'max-w-[82%]',
-                  message.error && 'text-destructive',
-                )}
-              >
-                <MessageContent
-                  className={cn(
-                    'text-[13px] leading-relaxed',
-                    message.role === 'assistant' && 'w-full max-w-full',
-                  )}
-                >
-                  {message.role === 'assistant' && message.pending && message.parts.length === 0 ? (
-                    <AssistantReasoningWait />
-                  ) : message.role === 'assistant' ? (
-                    <AssistantTimelineParts
-                      parts={message.parts}
-                      streaming={Boolean(message.pending)}
-                    />
-                  ) : (
-                    message.parts.map((part) => (
-                      <ChatPartView
-                        key={part.id}
-                        part={part}
-                        role={message.role}
-                        streaming={Boolean(message.pending)}
-                      />
-                    ))
-                  )}
-                </MessageContent>
-              </Message>
-            ))}
-          </ConversationContent>
-          <ConversationScrollButton />
-        </Conversation>
-      ) : (
+      {isChatView ? conversationTree : (
         <div className={cn('min-h-0 flex-1', isBubble ? 'bg-muted/20' : 'bg-background')}>
           {activeView === 'todolist' && <TodolistPanel workspaceFolder={workspaceFolder} compact={compact} />}
           {activeView === 'pomodoro' && <PomodoroPanel workspaceFolder={workspaceFolder} compact={compact} />}
@@ -618,6 +679,7 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
                     >
                       <Paperclip />
                     </PromptInputButton>
+                    <ThinkingSelector runtime={runtime} disabled={isStreaming || !hasWorkspace} />
                   </PromptInputTools>
                   <PromptInputSubmit
                     aria-label={isStreaming ? '打断生成' : '发送消息'}

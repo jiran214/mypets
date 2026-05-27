@@ -466,7 +466,7 @@ export class ChatRuntime {
   private notifyThrottled(): void {
     const now = performance.now();
     const elapsed = now - this._lastNotifyTime;
-    const THROTTLE_MS = 100;
+    const THROTTLE_MS = 200;
 
     if (elapsed >= THROTTLE_MS) {
       this._lastNotifyTime = now;
