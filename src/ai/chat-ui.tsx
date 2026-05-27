@@ -369,12 +369,7 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
         isBubble && 'rounded-[18px] border shadow-xl',
       )}
     >
-      <div className={cn('relative flex h-11 shrink-0 items-center justify-between border-b px-4', !isBubble && 'bg-background')}>
-        {panelTitle ? (
-          <span className="truncate text-sm font-medium">{panelTitle}</span>
-        ) : (
-          <span />
-        )}
+      <div className={cn('relative flex h-11 shrink-0 items-center justify-between border-b px-2', !isBubble && 'bg-background')}>
         <div className="flex items-center">
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
@@ -390,7 +385,7 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent
-              align="end"
+              align="start"
               sideOffset={6}
               onCloseAutoFocus={(event) => event.preventDefault()}
               className="min-w-40"
@@ -408,6 +403,13 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          {panelTitle ? (
+            <span className="truncate text-sm font-medium">{panelTitle}</span>
+          ) : (
+            <span />
+          )}
+        </div>
+        <div className="flex items-center">
           <DropdownMenu modal={false} open={historyOpen} onOpenChange={handleHistoryOpenChange}>
             <DropdownMenuTrigger asChild disabled={isStreaming || !hasWorkspace}>
               <Button
@@ -425,11 +427,16 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
               align="end"
               sideOffset={6}
               onCloseAutoFocus={(event) => event.preventDefault()}
-              className="w-[min(320px,calc(100vw-32px))] min-w-[280px] p-0"
+              collisionPadding={isBubble ? 12 : 16}
+              className={cn(
+                'max-w-[calc(100vw-16px)] p-0!',
+                isBubble ? 'w-[220px]! min-w-[220px]!' : 'w-[300px]! min-w-[300px]!',
+              )}
             >
               <HistoryList
                 sessions={runtime.getSessions()}
                 hasWorkspace={hasWorkspace}
+                compact={isBubble}
                 onSelect={(session) => {
                   runtime.resumeConversation(session);
                   setActiveView('chat');
@@ -608,10 +615,11 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
 interface HistoryListProps {
   sessions: AiSessionSummary[];
   hasWorkspace: boolean;
+  compact?: boolean;
   onSelect: (session: AiSessionSummary) => void;
 }
 
-function HistoryList({ sessions, hasWorkspace, onSelect }: HistoryListProps): ReactNode {
+function HistoryList({ sessions, hasWorkspace, compact, onSelect }: HistoryListProps): ReactNode {
   const [search, setSearch] = useState('');
 
   if (!hasWorkspace) {
@@ -623,7 +631,7 @@ function HistoryList({ sessions, hasWorkspace, onSelect }: HistoryListProps): Re
     : sessions;
 
   return (
-    <div className="flex min-h-0 flex-col overflow-hidden">
+    <div className={cn('flex min-h-0 flex-col overflow-hidden', compact ? 'h-[min(248px,calc(100vh-32px))]' : 'h-[min(320px,calc(100vh-48px))]')}>
       <div className="shrink-0 border-b px-2.5 py-2">
         <div className="flex items-center gap-1.5 rounded-md border bg-background px-2 py-1">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
@@ -650,19 +658,22 @@ function HistoryList({ sessions, hasWorkspace, onSelect }: HistoryListProps): Re
           {sessions.length === 0 ? '暂无历史对话' : '无匹配结果'}
         </div>
       ) : (
-        <ScrollArea className="max-h-72">
-          <div className="flex flex-col gap-0.5 p-1.5 pr-2">
+        <ScrollArea className="min-h-0 flex-1">
+          <div className={cn('flex flex-col p-1', compact ? 'gap-0' : 'gap-px')}>
             {filtered.map((session) => (
               <Button
-                className="h-auto w-full max-w-full shrink justify-start overflow-hidden px-2 py-2 text-left"
+                className={cn(
+                  'grid h-auto w-full grid-cols-[minmax(0,1fr)] shrink! min-w-0 max-w-full justify-start overflow-hidden whitespace-normal! px-2 text-left',
+                  compact ? 'py-1' : 'py-1.5',
+                )}
                 variant="ghost"
                 type="button"
                 key={session.id}
                 onClick={() => onSelect(session)}
                 title={session.title || '历史对话'}
               >
-                <span className="flex min-w-0 w-full flex-col gap-0.5 overflow-hidden">
-                  <span className="block truncate text-sm font-medium">{session.title || '历史对话'}</span>
+                <span className="block min-w-0 w-full overflow-hidden">
+                  <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium">{session.title || '历史对话'}</span>
                   <span className="block truncate text-xs text-muted-foreground">{formatSessionTime(session.updatedAt)}</span>
                 </span>
               </Button>

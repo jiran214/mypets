@@ -354,6 +354,8 @@ export async function runPi(input) {
       ...process.env,
       ...customEnv,
       PI_CODING_AGENT_CLIENT_APP: 'wimipet',
+      LANG: 'en_US.UTF-8',
+      LC_ALL: 'en_US.UTF-8',
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
