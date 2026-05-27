@@ -27,13 +27,13 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 应用有三个运行时，数据流为：
 
 ```
-前端 TS ──invoke()──▸ Rust (Tauri commands) ──spawn node──▸ src-node/claude-runner.mjs
+前端 TS ──invoke()──▸ Rust (Tauri commands) ──spawn node──▸ src-node/runner.mjs
    ◂──event()──────── ◂──emit("ai-chat-event")──────────── ◂──stdout JSON lines──┘
 ```
 
 - **前端 TypeScript** — Canvas 渲染 + DOM 着陆页 + React 聊天 UI
 - **Rust (src-tauri/)** — 文件系统访问、AI 状态管理、启动 Node 子进程
-- **Node (src-node/claude-runner.mjs)** — 多 AI provider 调度器，支持 `pi`（默认）、`claude`、`codex` 三种 provider，stdin 接收 JSON payload，stdout 输出 JSON 行事件
+- **Node (src-node/runner.mjs)** — 多 AI provider 调度器，支持 `pi`（默认）、`claude`、`codex` 三种 provider，stdin 接收 JSON payload，stdout 输出 JSON 行事件
 
 ### Tauri IPC 命令
 
@@ -65,7 +65,7 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 发送消息的完整路径：
 
 1. 前端 `ChatRuntime.send()` → `invoke('send_ai_chat_message', ...)`
-2. Rust 构造 JSON payload，`Command::new("node")` 启动 [claude-runner.mjs](src-node/claude-runner.mjs)
+2. Rust 构造 JSON payload，`Command::new("node")` 启动 [runner.mjs](src-node/runner.mjs)
 3. Node 进程通过 stdin 接收 payload，根据 provider 类型分发到对应 runner（`run-claude.mjs`、`run-pi.mjs`、`run-codex.mjs`）
 4. Node 将每个 stream event 写为 JSON line 到 stdout
 5. Rust 读取 stdout，通过 `app.emit("ai-chat-event", event)` 转发到前端
@@ -139,7 +139,7 @@ Rust AI 模块结构（`src-tauri/src/ai/`）：
 - `src/` 根目录 — `main.ts`（入口）、`renderer.ts`（Canvas 渲染）、`types.ts`、`workspaces.ts`
 - `src/components/` — React 组件（`ui/` 基础组件、`ai-elements/` 聊天组件、`settings/` 设置组件）
 - `src/lib/` — 工具函数（`utils.ts`、`ai-utils.ts`、`ai-constants.ts`、`tauri-utils.ts`）
-- `src-node/` — Node.js AI runner（`claude-runner.mjs`、`run-claude.mjs`、`run-pi.mjs`、`run-codex.mjs`、`runner-utils.mjs`）
+- `src-node/` — Node.js AI runner（`runner.mjs`、`run-claude.mjs`、`run-pi.mjs`、`run-codex.mjs`、`runner-utils.mjs`）
 
 导入规则：
 - 外部文件引用 AI/Pet 组使用 `@/ai/...` 或 `@/pet/...`

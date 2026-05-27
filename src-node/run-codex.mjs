@@ -18,7 +18,7 @@ import {
   setActiveRequestId,
   setActiveAbortHandler,
   getActiveRequestId,
-} from './claude-runner.mjs';
+} from './runner.mjs';
 import { execText, wherePaths, spawnExecutable, findExecutable, createDisabledSkillNotice } from './runner-utils.mjs';
 
 export function findCodexExecutable() {

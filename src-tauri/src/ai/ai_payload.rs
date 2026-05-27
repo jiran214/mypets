@@ -101,7 +101,7 @@ pub(crate) fn helper_path(app: &AppHandle) -> Result<PathBuf, String> {
         .parent()
         .ok_or_else(|| "Cannot resolve project root".to_string())?
         .join("src-node")
-        .join("claude-runner.mjs");
+        .join("runner.mjs");
     if project_helper.exists() {
         return Ok(project_helper);
     }
@@ -110,10 +110,10 @@ pub(crate) fn helper_path(app: &AppHandle) -> Result<PathBuf, String> {
         .path()
         .resource_dir()
         .map_err(|err| format!("Cannot resolve resource directory: {err}"))?
-        .join("claude-runner.mjs");
+        .join("runner.mjs");
     if resource_helper.exists() {
         return Ok(resource_helper);
     }
 
-    Err("Claude helper script not found".to_string())
+    Err("Runner script not found".to_string())
 }

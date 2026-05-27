@@ -18,7 +18,7 @@ import {
   emitPart,
   getActiveRequestId,
   setActiveAbortHandler,
-} from './claude-runner.mjs';
+} from './runner.mjs';
 import { execText, wherePaths, findExecutable } from './runner-utils.mjs';
 
 function npmClaudePath() {
