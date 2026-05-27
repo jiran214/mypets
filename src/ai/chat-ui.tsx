@@ -815,12 +815,9 @@ function AssistantTimelineParts({
         <DeepThinkingView
           key={block.part.id}
           part={block.part}
+          streaming={streaming}
         />
       );
-    }
-
-    if (block.type === 'question') {
-      return <ToolQuestionPartView key={block.part.id} part={block.part} />;
     }
 
     return (
@@ -833,11 +830,11 @@ function AssistantTimelineParts({
   });
 }
 
-function DeepThinkingView({ part }: { part: ChatMessagePart }): ReactNode {
+function DeepThinkingView({ part, streaming }: { part: ChatMessagePart; streaming: boolean }): ReactNode {
   return (
     <Reasoning
-      className="mb-0 rounded-md border border-border/60 bg-muted/20 px-3 py-2"
-      defaultOpen={false}
+      className="mb-0 rounded-md bg-muted/20 px-1 py-1"
+      defaultOpen={streaming}
       isStreaming={false}
     >
       <ReasoningTrigger
@@ -862,7 +859,7 @@ function TimelineGroupView({
 
   return (
     <Task
-      className="rounded-md border border-border/60 bg-muted/20 px-3 py-2"
+      className="rounded-md bg-muted/20 px-1 py-1"
       defaultOpen={streaming}
     >
       <TaskTrigger title="调用工具">
@@ -992,44 +989,6 @@ function timelineKindIcon(kind: ChatMessagePart['kind']): ReactNode {
   return <Wrench className="size-3.5 shrink-0" />;
 }
 
-function ToolQuestionPartView({ part }: { part: ChatMessagePart }): ReactNode {
-  const data = getToolQuestionData(part);
-  if (!data || data.status === 'pending') return null;
-
-  const title = data.title || (data.kind === 'permission' ? `确认 ${data.toolName}` : '需要你的选择');
-
-  return (
-    <Task
-      className="rounded-md border border-border/60 bg-background/70 px-3 py-2"
-      defaultOpen={data.status === 'error'}
-    >
-      <TaskTrigger title={title}>
-        <div className="flex w-full cursor-pointer items-center justify-between gap-3 text-muted-foreground transition-colors hover:text-foreground">
-          <div className="flex min-w-0 items-center gap-2">
-            <CircleQuestionMark className="size-4 shrink-0" />
-            <span className="truncate text-sm font-medium">{title}</span>
-            <Badge variant={data.status === 'error' ? 'destructive' : 'secondary'} className="shrink-0 rounded-full text-[11px]">
-              {questionSummaryStatus(data)}
-            </Badge>
-          </div>
-          <ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
-        </div>
-      </TaskTrigger>
-      <TaskContent className="text-xs">
-        {data.description && (
-          <div className="rounded-md bg-muted/30 px-2.5 py-2 leading-relaxed text-muted-foreground">
-            {data.description}
-          </div>
-        )}
-        <ToolQuestionAnswerSummary response={data.response} />
-        {data.error && (
-          <div className="rounded-md bg-destructive/10 px-2.5 py-2 text-destructive">{data.error}</div>
-        )}
-      </TaskContent>
-    </Task>
-  );
-}
-
 function QuestionOverlay({
   compact,
   onInputBlur,
@@ -1048,20 +1007,13 @@ function QuestionOverlay({
 
   const title = current.data.title || (current.data.kind === 'permission' ? `确认 ${current.data.toolName}` : '需要你的选择');
   return (
-    <div className={cn('rounded-lg border border-border/80 bg-muted/20 p-3 shadow-sm', compact && 'p-2.5')}>
-      <div className="mb-3 flex items-start gap-2">
-        <Badge variant="secondary" className="mt-0.5 shrink-0 rounded-full">
+    <div className={cn('rounded-lg border border-border/80 bg-muted/20 px-2.5 py-2 shadow-sm', compact && 'px-2 py-1.5')}>
+      <div className="mb-1.5 flex items-center gap-2">
+        <Badge variant="secondary" className="shrink-0 rounded-full text-[10px] px-1.5 py-0">
           1/{pendingQuestions.length}
         </Badge>
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <CircleQuestionMark className="size-4 shrink-0 text-muted-foreground" />
-            <div className="truncate text-sm font-medium">{title}</div>
-          </div>
-          {current.data.description && (
-            <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{current.data.description}</p>
-          )}
-        </div>
+        <CircleQuestionMark className="size-3.5 shrink-0 text-muted-foreground" />
+        <div className="truncate text-xs font-medium">{title}</div>
       </div>
       <ToolQuestionForm
         compact={compact}
@@ -1165,10 +1117,7 @@ function ToolQuestionForm({
   };
 
   return (
-    <div className="space-y-3">
-      {data.description && (
-        <p className="text-xs leading-relaxed text-muted-foreground">{data.description}</p>
-      )}
+    <div className="space-y-1.5">
       {data.questions.map((question, index) => {
         const key = question.question;
         const selected = answers[key] ?? [];
@@ -1176,12 +1125,8 @@ function ToolQuestionForm({
         const preview = activePreviews[key] || selectedPreview(question, answers, activePreviews);
 
         return (
-          <div className={cn('space-y-2 rounded-md bg-muted/30 p-2.5', compact && 'p-2')} key={`${question.question}-${index}`}>
-            <div className="flex items-start gap-2">
-              <Badge variant="secondary" className="mt-0.5 shrink-0">{question.header || `问题 ${index + 1}`}</Badge>
-              <p className="min-w-0 flex-1 text-sm font-medium leading-relaxed">{question.question}</p>
-            </div>
-            <div className="grid gap-1.5">
+          <div className={cn('space-y-1.5 rounded-md bg-muted/30 px-2 py-1.5', compact && 'px-1.5 py-1')} key={`${question.question}-${index}`}>
+            <div className="grid gap-1">
               {question.options.map((option) => {
                 const isSelected = selected.includes(option.label);
                 return (
@@ -1189,41 +1134,40 @@ function ToolQuestionForm({
                     key={option.label}
                     type="button"
                     variant={isSelected ? 'secondary' : 'outline'}
-                    className="h-auto min-h-10 justify-start whitespace-normal rounded-md px-2.5 py-2 text-left"
+                    className="h-auto min-h-8 justify-start whitespace-normal rounded-md px-2 py-1 text-left"
                     disabled={disabled}
                     onClick={() => toggleOption(question, option)}
                     onFocus={() => option.preview && setActivePreviews((current) => ({ ...current, [key]: option.preview ?? '' }))}
                     onMouseEnter={() => option.preview && setActivePreviews((current) => ({ ...current, [key]: option.preview ?? '' }))}
                   >
                     <span className={cn(
-                      'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border',
+                      'mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full border',
                       isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40',
                     )}>
-                      {isSelected && <Check className="size-3" />}
+                      {isSelected && <Check className="size-2.5" />}
                     </span>
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="text-sm font-medium leading-snug">{option.label}</span>
-                      <span className="text-xs leading-relaxed text-muted-foreground">{option.description}</span>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="text-xs font-medium leading-snug">{option.label}</span>
                     </span>
                   </Button>
                 );
               })}
             </div>
             {preview && (
-              <div className="rounded-md bg-background/80 px-2.5 py-2 text-xs leading-relaxed">
+              <div className="rounded-md bg-background/80 px-2 py-1 text-xs leading-relaxed">
                 <MessageResponse isAnimating={false}>{preview}</MessageResponse>
               </div>
             )}
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <CircleQuestionMark className="size-3.5" />
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+                <CircleQuestionMark className="size-3" />
                 <span>自定义回答</span>
               </div>
               <Textarea
                 value={custom}
                 disabled={disabled}
                 placeholder={question.multiSelect ? '可补充一个自定义选项' : '选择其他答案时填写'}
-                className="min-h-10 resize-none rounded-md text-xs"
+                className="min-h-7 resize-none rounded-md text-xs"
                 onChange={(event) => updateCustomAnswer(question, event.currentTarget.value)}
                 onBlur={onInputBlur}
                 onFocus={onInputFocus}
@@ -1233,13 +1177,13 @@ function ToolQuestionForm({
         );
       })}
       {data.error && (
-        <div className="rounded-md bg-destructive/10 px-2.5 py-2 text-xs text-destructive">{data.error}</div>
+        <div className="rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive">{data.error}</div>
       )}
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-muted-foreground">
+        <span className="text-[11px] text-muted-foreground">
           {data.status === 'submitting' ? '正在回传...' : '选择会继续当前回复'}
         </span>
-        <div className="flex shrink-0 items-center justify-end gap-2">
+        <div className="flex shrink-0 items-center justify-end gap-1.5">
           {onSkip && (
             <Button
               type="button"
@@ -1247,6 +1191,7 @@ function ToolQuestionForm({
               variant="ghost"
               disabled={disabled}
               onClick={onSkip}
+              className="h-7 text-xs"
             >
               跳过
             </Button>
@@ -1256,6 +1201,7 @@ function ToolQuestionForm({
             size="sm"
             disabled={!canSubmit || disabled}
             onClick={submitAnswer}
+            className="h-7 text-xs"
           >
             <SendHorizontal data-icon="inline-start" />
             {submitLabel}
@@ -1291,18 +1237,6 @@ function buildSkipQuestionResponse(data: ToolQuestionPartData): ToolQuestionAnsw
     response.annotations![question.question] = { notes: '用户跳过了这个问题。' };
   }
   return response;
-}
-
-function questionSummaryStatus(data: ToolQuestionPartData): string {
-  if (data.status === 'error') return '失败';
-  if (data.status === 'submitting') return '回传中';
-  if (questionResponseWasSkipped(data.response)) return '已跳过';
-  return '已回答';
-}
-
-function questionResponseWasSkipped(response?: ToolQuestionAnswerPayload): boolean {
-  const answers = Object.values(response?.answers ?? {});
-  return answers.length > 0 && answers.every((answer) => answer.length === 1 && answer[0] === SKIP_ANSWER_LABEL);
 }
 
 function formatQuestionAnswer(answer: string[]): string {

@@ -1,4 +1,3 @@
-import { getToolQuestionData } from '@/lib/ai-utils';
 import type { ChatMessagePart, ChatPartKind } from './ai-types';
 
 export interface TimelineItem {
@@ -16,8 +15,7 @@ export interface TimelineGroup {
 export type TimelineBlock =
   | { type: 'text'; part: ChatMessagePart }
   | { type: 'thinking'; part: ChatMessagePart }
-  | { type: 'group'; group: TimelineGroup }
-  | { type: 'question'; part: ChatMessagePart };
+  | { type: 'group'; group: TimelineGroup };
 
 export function buildTimelineGroups(parts: ChatMessagePart[]): TimelineBlock[] {
   const blocks: TimelineBlock[] = [];
@@ -51,12 +49,6 @@ export function buildTimelineGroups(parts: ChatMessagePart[]): TimelineBlock[] {
     }
 
     if (part.kind === 'question') {
-      flushGroup();
-      const questionData = getToolQuestionData(part);
-      if (questionData?.status === 'pending') {
-        continue;
-      }
-      blocks.push({ type: 'question', part });
       continue;
     }
 
