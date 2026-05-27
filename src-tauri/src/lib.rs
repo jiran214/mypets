@@ -1,5 +1,6 @@
 mod ai;
 mod pet;
+mod tools;
 
 use tauri::{
     menu::MenuBuilder,
@@ -100,6 +101,7 @@ pub fn run() {
             ai::send_ai_chat_message,
             ai::cancel_ai_chat_message,
             ai::answer_ai_tool_question,
+            tools::send_tools_command,
             pet::delete_pet_workspace,
             pet::load_pet,
             pet::load_spritesheet,

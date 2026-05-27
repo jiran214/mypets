@@ -6,15 +6,19 @@ import { hasTauriRuntime, safeCurrentWindow } from '@/lib/tauri-utils';
 import { getToolQuestionData } from '@/lib/ai-utils';
 import {
   Check,
+  CalendarDays,
   CircleQuestionMark,
   FileIcon,
   FileText,
   History,
+  ListTodo,
+  MessageCircle,
   Paperclip,
   Plus,
   Search,
   SendHorizontal,
   Sparkles,
+  Timer,
   X,
 } from 'lucide-react';
 import type { ToolUIPart } from 'ai';
@@ -67,8 +71,13 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { CountdownPanel } from '@/components/tools/countdown-panel';
+import { PomodoroPanel } from '@/components/tools/pomodoro-panel';
+import { TodolistPanel } from '@/components/tools/todolist-panel';
 import { cn } from '@/lib/utils';
 import type { ChatRuntime } from './chat-runtime';
 import type {
@@ -101,6 +110,14 @@ export interface ChatBubbleController {
 }
 
 type ChatPanelVariant = 'embedded' | 'bubble';
+type ToolView = 'chat' | 'todolist' | 'pomodoro' | 'countdown';
+
+const TOOL_VIEW_OPTIONS: { value: ToolView; label: string }[] = [
+  { value: 'chat', label: '聊天' },
+  { value: 'todolist', label: 'Todolist' },
+  { value: 'pomodoro', label: '番茄钟' },
+  { value: 'countdown', label: '倒数日' },
+];
 
 interface ChatPanelProps {
   runtime: ChatRuntime;
@@ -141,11 +158,15 @@ export function mountChatUi(
 export function ChatPanel({ runtime, compact = false, variant, petName, onInputFocus, onInputBlur, onDragActive }: ChatPanelProps): ReactNode {
   const [, forceRender] = useState(0);
   const [inputValue, setInputValue] = useState('');
+  const [activeView, setActiveView] = useState<ToolView>('chat');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const resolvedVariant = variant ?? (compact ? 'bubble' : 'embedded');
   const isBubble = resolvedVariant === 'bubble';
+  const isChatView = activeView === 'chat';
+  const workspaceFolder = runtime.getWorkspaceFolder();
+  const panelTitle = isChatView ? runtime.getConversationTitle() : toolViewLabel(activeView);
 
   const conversation = runtime.getConversation();
   const isStreaming = runtime.isStreaming();
@@ -190,13 +211,13 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
 
   const submit = useCallback((message: PromptInputMessage): void => {
     const value = message.text || inputValue;
-    if (sendDisabled) return;
+    if (!isChatView || sendDisabled) return;
 
     const files = attachments;
     setInputValue('');
     setAttachments([]);
     void runtime.send(value, files);
-  }, [attachments, inputValue, runtime, sendDisabled]);
+  }, [attachments, inputValue, isChatView, runtime, sendDisabled]);
 
   const handleHistoryOpenChange = useCallback((open: boolean): void => {
     setHistoryOpen(open);
@@ -240,6 +261,7 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
 
         setDragActive(false);
         if (payload.type === 'drop') {
+          setActiveView('chat');
           addFileAttachments(payload.paths);
           if (compact) {
             document.dispatchEvent(new CustomEvent('open-chat-bubble'));
@@ -315,6 +337,7 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
       void attachmentsFromDataTransfer(dataTransfer, runtime.getWorkspaceFolder())
         .then((droppedAttachments) => {
           if (droppedAttachments.length === 0) return;
+          setActiveView('chat');
           addAttachments(droppedAttachments);
           if (compact) {
             document.dispatchEvent(new CustomEvent('open-chat-bubble'));
@@ -347,12 +370,44 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
       )}
     >
       <div className={cn('relative flex h-11 shrink-0 items-center justify-between border-b px-4', !isBubble && 'bg-background')}>
-        {runtime.getConversationTitle() ? (
-          <span className="truncate text-sm font-medium">{runtime.getConversationTitle()}</span>
+        {panelTitle ? (
+          <span className="truncate text-sm font-medium">{panelTitle}</span>
         ) : (
           <span />
         )}
         <div className="flex items-center">
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant={isChatView ? 'ghost' : 'secondary'}
+                size="icon-sm"
+                type="button"
+                className="size-8 rounded-md"
+                title="切换小工具"
+                aria-label="切换小工具"
+              >
+                {toolViewIcon(activeView)}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={6}
+              onCloseAutoFocus={(event) => event.preventDefault()}
+              className="min-w-40"
+            >
+              <DropdownMenuRadioGroup
+                value={activeView}
+                onValueChange={(value) => setActiveView(value as ToolView)}
+              >
+                {TOOL_VIEW_OPTIONS.map((option) => (
+                  <DropdownMenuRadioItem key={option.value} value={option.value}>
+                    {toolViewIcon(option.value)}
+                    <span>{option.label}</span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <DropdownMenu modal={false} open={historyOpen} onOpenChange={handleHistoryOpenChange}>
             <DropdownMenuTrigger asChild disabled={isStreaming || !hasWorkspace}>
               <Button
@@ -377,6 +432,7 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
                 hasWorkspace={hasWorkspace}
                 onSelect={(session) => {
                   runtime.resumeConversation(session);
+                  setActiveView('chat');
                   setHistoryOpen(false);
                 }}
               />
@@ -393,6 +449,7 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
             onClick={() => {
               if (isStreaming) return;
               startNewConversation();
+              setActiveView('chat');
             }}
           >
             <Plus data-icon="inline-start" />
@@ -413,127 +470,137 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
         </div>
       </div>
 
-      <Conversation className={cn('min-h-0', isBubble ? 'bg-muted/20' : 'bg-background')}>
-        <ConversationContent className={cn('min-h-full gap-5 p-4', compact && 'gap-4 p-3', !hasMessages && 'justify-center')}>
-          {!hasMessages && (
-            <ConversationEmptyState
-              icon={<Sparkles />}
-              title={hasWorkspace ? `开始和${petName ?? '桌宠'}聊天` : '请选择桌宠'}
-              description={hasWorkspace ? 'Hello World!' : '从左侧列表选择一个可用桌宠后即可对话。'}
-            />
-          )}
-          {conversation.messages.map((message) => (
-            <Message
-              key={message.id}
-              from={message.role}
-              className={cn(
-                message.role === 'assistant'
-                  ? 'max-w-full'
-                  : compact ? 'max-w-[94%]' : 'max-w-[82%]',
-                message.error && 'text-destructive',
-              )}
-            >
-              <MessageContent
+      {isChatView ? (
+        <Conversation className={cn('min-h-0', isBubble ? 'bg-muted/20' : 'bg-background')}>
+          <ConversationContent className={cn('min-h-full gap-5 p-4', compact && 'gap-4 p-3', !hasMessages && 'justify-center')}>
+            {!hasMessages && (
+              <ConversationEmptyState
+                icon={<Sparkles />}
+                title={hasWorkspace ? `开始和${petName ?? '桌宠'}聊天` : '请选择桌宠'}
+                description={hasWorkspace ? 'Hello World!' : '从左侧列表选择一个可用桌宠后即可对话。'}
+              />
+            )}
+            {conversation.messages.map((message) => (
+              <Message
+                key={message.id}
+                from={message.role}
                 className={cn(
-                  'text-[13px] leading-relaxed',
-                  message.role === 'assistant' && 'w-full max-w-full',
+                  message.role === 'assistant'
+                    ? 'max-w-full'
+                    : compact ? 'max-w-[94%]' : 'max-w-[82%]',
+                  message.error && 'text-destructive',
                 )}
               >
-                {message.role === 'assistant' && message.pending && message.parts.length === 0 ? (
-                  <AssistantReasoningWait />
-                ) : (
-                  message.parts.map((part) => (
-                    <ChatPartView
-                      key={part.id}
-                      part={part}
-                      role={message.role}
-                      streaming={Boolean(message.pending)}
-                      runtime={runtime}
-                    />
-                  ))
-                )}
-              </MessageContent>
-            </Message>
-          ))}
-        </ConversationContent>
-        <ConversationScrollButton />
-      </Conversation>
-
-      <div className="shrink-0 border-t bg-background">
-        <div className={cn('p-3', compact && 'p-2.5')}>
-          <PromptInput
-            className={cn(dragActive && 'rounded-lg ring-2 ring-ring/30')}
-            multiple
-            onSubmit={submit}
-          >
-            {attachments.length > 0 && (
-              <PromptInputHeader>
-                <Attachments variant="inline">
-                  {attachments.map((attachment) => (
-                    <Attachment
-                      key={attachment.id}
-                      data={chatAttachmentData(attachment)}
-                      draggable={false}
-                      onDragStart={(event) => event.preventDefault()}
-                      onRemove={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
-                    >
-                      <AttachmentPreview
-                        forceIcon
-                        fallbackIcon={attachment.kind === 'text'
-                          ? <FileText className="size-3 text-muted-foreground" />
-                          : <FileIcon className="size-3 text-muted-foreground" />}
-                      />
-                      <AttachmentInfo />
-                      <AttachmentRemove label={`移除 ${attachment.name}`} />
-                    </Attachment>
-                  ))}
-                </Attachments>
-              </PromptInputHeader>
-            )}
-            <PromptInputBody>
-              <PromptInputTextarea
-                value={inputValue}
-                disabled={!hasWorkspace}
-                readOnly={isStreaming}
-                aria-disabled={isStreaming}
-                tabIndex={isStreaming ? -1 : undefined}
-                placeholder={hasWorkspace ? '输入消息，Enter 发送' : '先选择一个桌宠'}
-                className={cn(
-                  'min-h-14 text-sm',
-                  compact && 'min-h-12 max-h-28',
-                  isStreaming && 'pointer-events-none cursor-default select-none',
-                )}
-                onChange={(event) => setInputValue(event.currentTarget.value)}
-                onFocus={onInputFocus}
-                onBlur={onInputBlur}
-              />
-            </PromptInputBody>
-            <PromptInputFooter>
-              <PromptInputTools>
-                <PromptInputButton
-                  tooltip="添加文件"
-                  aria-disabled={isStreaming || !hasWorkspace}
-                  className={cn(isStreaming && 'pointer-events-none cursor-default opacity-50')}
-                  disabled={!hasWorkspace}
-                  onClick={() => {
-                    if (isStreaming) return;
-                    void pickFiles();
-                  }}
+                <MessageContent
+                  className={cn(
+                    'text-[13px] leading-relaxed',
+                    message.role === 'assistant' && 'w-full max-w-full',
+                  )}
                 >
-                  <Paperclip />
-                </PromptInputButton>
-              </PromptInputTools>
-              <PromptInputSubmit
-                aria-label={isStreaming ? '打断生成' : '发送消息'}
-                disabled={!isStreaming && sendDisabled}
-                status={isStreaming ? 'streaming' : 'ready'}
-                title={isStreaming ? '打断生成' : '发送'}
-                onStop={() => void runtime.interrupt()}
-              />
-            </PromptInputFooter>
-          </PromptInput>
+                  {message.role === 'assistant' && message.pending && message.parts.length === 0 ? (
+                    <AssistantReasoningWait />
+                  ) : (
+                    message.parts.map((part) => (
+                      <ChatPartView
+                        key={part.id}
+                        part={part}
+                        role={message.role}
+                        streaming={Boolean(message.pending)}
+                        runtime={runtime}
+                      />
+                    ))
+                  )}
+                </MessageContent>
+              </Message>
+            ))}
+          </ConversationContent>
+          <ConversationScrollButton />
+        </Conversation>
+      ) : (
+        <div className={cn('min-h-0 flex-1', isBubble ? 'bg-muted/20' : 'bg-background')}>
+          {activeView === 'todolist' && <TodolistPanel workspaceFolder={workspaceFolder} compact={compact} />}
+          {activeView === 'pomodoro' && <PomodoroPanel workspaceFolder={workspaceFolder} compact={compact} />}
+          {activeView === 'countdown' && <CountdownPanel workspaceFolder={workspaceFolder} compact={compact} />}
         </div>
-      </div>
+      )}
+
+      {isChatView && (
+        <div className="shrink-0 border-t bg-background">
+          <div className={cn('p-3', compact && 'p-2.5')}>
+            <PromptInput
+              className={cn(dragActive && 'rounded-lg ring-2 ring-ring/30')}
+              multiple
+              onSubmit={submit}
+            >
+              {attachments.length > 0 && (
+                <PromptInputHeader>
+                  <Attachments variant="inline">
+                    {attachments.map((attachment) => (
+                      <Attachment
+                        key={attachment.id}
+                        data={chatAttachmentData(attachment)}
+                        draggable={false}
+                        onDragStart={(event) => event.preventDefault()}
+                        onRemove={() => setAttachments((current) => current.filter((item) => item.id !== attachment.id))}
+                      >
+                        <AttachmentPreview
+                          forceIcon
+                          fallbackIcon={attachment.kind === 'text'
+                            ? <FileText className="size-3 text-muted-foreground" />
+                            : <FileIcon className="size-3 text-muted-foreground" />}
+                        />
+                        <AttachmentInfo />
+                        <AttachmentRemove label={`移除 ${attachment.name}`} />
+                      </Attachment>
+                    ))}
+                  </Attachments>
+                </PromptInputHeader>
+              )}
+              <PromptInputBody>
+                <PromptInputTextarea
+                  value={inputValue}
+                  disabled={!hasWorkspace}
+                  readOnly={isStreaming}
+                  aria-disabled={isStreaming}
+                  tabIndex={isStreaming ? -1 : undefined}
+                  placeholder={hasWorkspace ? '输入消息，Enter 发送' : '先选择一个桌宠'}
+                  className={cn(
+                    'min-h-14 text-sm',
+                    compact && 'min-h-12 max-h-28',
+                    isStreaming && 'pointer-events-none cursor-default select-none',
+                  )}
+                  onChange={(event) => setInputValue(event.currentTarget.value)}
+                  onFocus={onInputFocus}
+                  onBlur={onInputBlur}
+                />
+              </PromptInputBody>
+              <PromptInputFooter>
+                <PromptInputTools>
+                  <PromptInputButton
+                    tooltip="添加文件"
+                    aria-disabled={isStreaming || !hasWorkspace}
+                    className={cn(isStreaming && 'pointer-events-none cursor-default opacity-50')}
+                    disabled={!hasWorkspace}
+                    onClick={() => {
+                      if (isStreaming) return;
+                      void pickFiles();
+                    }}
+                  >
+                    <Paperclip />
+                  </PromptInputButton>
+                </PromptInputTools>
+                <PromptInputSubmit
+                  aria-label={isStreaming ? '打断生成' : '发送消息'}
+                  disabled={!isStreaming && sendDisabled}
+                  status={isStreaming ? 'streaming' : 'ready'}
+                  title={isStreaming ? '打断生成' : '发送'}
+                  onStop={() => void runtime.interrupt()}
+                />
+              </PromptInputFooter>
+            </PromptInput>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -605,6 +672,17 @@ function HistoryList({ sessions, hasWorkspace, onSelect }: HistoryListProps): Re
       )}
     </div>
   );
+}
+
+function toolViewLabel(view: ToolView): string {
+  return TOOL_VIEW_OPTIONS.find((option) => option.value === view)?.label ?? '小工具';
+}
+
+function toolViewIcon(view: ToolView): ReactNode {
+  if (view === 'chat') return <MessageCircle data-icon="inline-start" />;
+  if (view === 'todolist') return <ListTodo data-icon="inline-start" />;
+  if (view === 'pomodoro') return <Timer data-icon="inline-start" />;
+  return <CalendarDays data-icon="inline-start" />;
 }
 
 interface ChatPartViewProps {
@@ -994,6 +1072,8 @@ export function setupChatBubble(stage: HTMLElement, canvas: HTMLCanvasElement): 
   if (!bubble) throw new Error('Chat bubble element not found');
   const win = safeCurrentWindow();
   let open = false;
+  let desiredOpen = false;
+  let transitionRunning = false;
   let pointerStart: { x: number; y: number } | null = null;
 
   const currentPetSize = (): Size => ({
@@ -1020,36 +1100,63 @@ export function setupChatBubble(stage: HTMLElement, canvas: HTMLCanvasElement): 
     return { width: layout.width, height: layout.height };
   };
 
-  const syncWindowFrame = (previousLayout: BubbleLayout, nextLayout: BubbleLayout): void => {
+  const syncWindowFrame = async (previousLayout: BubbleLayout, nextLayout: BubbleLayout): Promise<void> => {
     if (!win) return;
 
-    void Promise.all([win.outerPosition(), win.scaleFactor()])
-      .then(([position, scaleFactor]) => {
-        const dx = Math.round((previousLayout.petOffsetX - nextLayout.petOffsetX) * scaleFactor);
-        const dy = Math.round((previousLayout.petOffsetY - nextLayout.petOffsetY) * scaleFactor);
-        const updates: Promise<void>[] = [win.setSize(new LogicalSize(nextLayout.width, nextLayout.height))];
-        if (dx !== 0 || dy !== 0) {
-          updates.push(win.setPosition(new PhysicalPosition(position.x + dx, position.y + dy)));
-        }
-        return Promise.all(updates);
-      })
-      .catch((error) => {
-        console.warn('Failed to sync chat bubble window:', error);
-      });
+    const [position, scaleFactor] = await Promise.all([win.outerPosition(), win.scaleFactor()]);
+    const dx = Math.round((previousLayout.petOffsetX - nextLayout.petOffsetX) * scaleFactor);
+    const dy = Math.round((previousLayout.petOffsetY - nextLayout.petOffsetY) * scaleFactor);
+    const updates: Promise<void>[] = [win.setSize(new LogicalSize(nextLayout.width, nextLayout.height))];
+    if (dx !== 0 || dy !== 0) {
+      updates.push(win.setPosition(new PhysicalPosition(position.x + dx, position.y + dy)));
+    }
+    await Promise.all(updates);
   };
 
-  const setOpen = (next: boolean, syncFrame = true): void => {
-    if (next === open) return;
-    const petSize = currentPetSize();
-    const previousLayout = createLayout(petSize, open);
-    const nextLayout = createLayout(petSize, next);
+  const applyOpenLayout = (next: boolean, layout: BubbleLayout, petSize: Size): void => {
     open = next;
     bubble.hidden = !open;
     stage.classList.toggle('chat-open', open);
-    applyBubbleLayout(nextLayout, petSize);
-    if (syncFrame) {
-      syncWindowFrame(previousLayout, nextLayout);
+    applyBubbleLayout(layout, petSize);
+  };
+
+  const runOpenTransition = async (): Promise<void> => {
+    if (transitionRunning) return;
+    transitionRunning = true;
+    stage.dataset.bubbleTransition = 'true';
+
+    try {
+      while (desiredOpen !== open) {
+        const next = desiredOpen;
+        const petSize = currentPetSize();
+        const previousLayout = createLayout(petSize, open);
+        const nextLayout = createLayout(petSize, next);
+
+        applyOpenLayout(next, nextLayout, petSize);
+        await syncWindowFrame(previousLayout, nextLayout);
+      }
+    } catch (error) {
+      console.warn('Failed to sync chat bubble window:', error);
+    } finally {
+      transitionRunning = false;
+      delete stage.dataset.bubbleTransition;
+      if (desiredOpen !== open) {
+        void runOpenTransition();
+      }
     }
+  };
+
+  const setOpen = (next: boolean, syncFrame = true): void => {
+    if (next === desiredOpen && (!transitionRunning || next === open)) return;
+    desiredOpen = next;
+    const petSize = currentPetSize();
+    const nextLayout = createLayout(petSize, next);
+    if (!syncFrame) {
+      applyOpenLayout(next, nextLayout, petSize);
+      return;
+    }
+
+    void runOpenTransition();
   };
 
   canvas.addEventListener('pointerdown', (event) => {

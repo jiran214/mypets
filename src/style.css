@@ -233,6 +233,11 @@ body.manager-window #landing-page::before {
   bottom: auto;
 }
 
+#pet-stage[data-bubble-transition='true'] #pet-resize-handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
 #pet-resize-handle::before,
 #pet-resize-handle::after {
   content: '';
@@ -270,6 +275,8 @@ body.manager-window #landing-page::before {
   max-height: var(--bubble-height);
   overflow: hidden;
   transform: translateX(-50%);
+  backface-visibility: hidden;
+  contain: layout paint;
 }
 
 #chat-bubble[hidden] {

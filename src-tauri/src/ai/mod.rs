@@ -8,3 +8,4 @@ mod ai_storage;
 
 pub use ai_commands::*;
 pub use ai_models::*;
+pub(crate) use ai_storage::{resolve_storage, StoragePaths};
