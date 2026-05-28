@@ -27,7 +27,9 @@ pub(crate) fn now_ms() -> u64 {
 }
 
 pub(crate) fn path_to_string(path: &Path) -> String {
-    path.to_string_lossy().to_string()
+    let s = path.to_string_lossy().to_string();
+    // Strip Windows extended-length prefix \\?\ so Node.js can handle the path
+    s.strip_prefix("\\\\?\\").unwrap_or(&s).to_string()
 }
 
 fn validate_workspace_path(workspace_folder: &str) -> Result<PathBuf, String> {
