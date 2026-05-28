@@ -1,9 +1,5 @@
 export type ToolCommand = 'todolist' | 'pomodoro' | 'countdown';
 
-export type ToolCommandEvent =
-  | { type: 'done'; requestId: string; data: unknown }
-  | { type: 'error'; requestId: string; error: string };
-
 export type TodoStatusFilter = 'all' | 'pending' | 'done';
 
 export interface TodoItem {

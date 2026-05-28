@@ -1,6 +1,8 @@
 mod ai;
 mod pet;
-mod tools;
+pub mod tools;
+
+pub use ai::ai_process::terminate_all_ai_processes;
 
 use tauri::{
     menu::MenuBuilder,
@@ -43,6 +45,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             TRAY_SHOW_MAIN_ID => show_main_window(app),
             TRAY_QUIT_ID => {
+                ai::ai_process::terminate_all_ai_processes();
                 close_pet_windows(app);
                 app.exit(0);
             }

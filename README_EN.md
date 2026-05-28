@@ -2,7 +2,7 @@
 
 [中文](./README.md)
 
-A Tauri 2 desktop pet application — supports codex pet.
+A Tauri 2 desktop pet application — with built-in AI chat.
 
 <p align="center">
   <img src="/assets/image.png" alt="Landing page" width="45%" />

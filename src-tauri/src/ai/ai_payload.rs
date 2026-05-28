@@ -75,22 +75,6 @@ pub(crate) fn build_chat_payload(
                 "disabledSkills": settings.pi.disabled_skills,
                 "extraSkillPaths": settings.pi.extra_skill_paths,
             },
-            "claude": {
-                "pathToClaudeCodeExecutable": settings.claude.path_to_claude_code_executable,
-                "permissionMode": settings.claude.permission_mode,
-                "thinkingIntensity": settings.claude.thinking_intensity,
-                "useUserSettings": settings.claude.use_user_settings,
-                "customEnvText": settings.claude.custom_env_text,
-                "disabledSkills": settings.claude.disabled_skills,
-            },
-            "codex": {
-                "pathToCodexExecutable": settings.codex.path_to_codex_executable,
-                "model": settings.codex.model,
-                "approvalPolicy": settings.codex.approval_policy,
-                "reasoningEffort": settings.codex.reasoning_effort,
-                "customEnvText": settings.codex.custom_env_text,
-                "disabledSkills": settings.codex.disabled_skills,
-            },
         },
         "paths": public_paths(paths),
     })

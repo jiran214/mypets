@@ -22,7 +22,6 @@ pub(crate) struct RunnerConfig {
     pub provider_id: String,
     pub paths: StoragePaths,
     pub helper: std::path::PathBuf,
-    pub claude_dir: std::path::PathBuf,
     pub workspace_dir: std::path::PathBuf,
     pub payload: Value,
 }
@@ -34,7 +33,6 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
         provider_id,
         paths,
         helper,
-        claude_dir,
         workspace_dir,
         payload,
     } = config;
@@ -49,7 +47,6 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
     let mut child = match std::process::Command::new("node")
         .arg(helper)
         .current_dir(&workspace_dir)
-        .env("CLAUDE_CONFIG_DIR", &claude_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -57,7 +54,7 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
     {
         Ok(child) => child,
         Err(err) => {
-            let message = format!("Cannot start Node Claude helper: {err}");
+            let message = format!("Cannot start Node AI runner: {err}");
             append_ai_log(&paths, LogLevel::Error, "runner", &message);
             return Err(message);
         }
@@ -67,20 +64,20 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
     let stdin = child
         .stdin
         .take()
-        .ok_or_else(|| "Cannot write Claude helper input".to_string())?;
+        .ok_or_else(|| "Cannot write AI runner input".to_string())?;
     let stdin = Arc::new(Mutex::new(stdin));
     {
         let mut writer = stdin
             .lock()
-            .map_err(|_| "Cannot lock Claude helper input".to_string())?;
+            .map_err(|_| "Cannot lock AI runner input".to_string())?;
         if let Err(err) = writeln!(writer, "{}", payload) {
-            let message = format!("Cannot write Claude helper input: {err}");
+            let message = format!("Cannot write AI runner input: {err}");
             append_ai_log(&paths, LogLevel::Error, "runner", &message);
             let _ = terminate_process_tree(child_pid);
             return Err(message);
         }
         if let Err(err) = writer.flush() {
-            let message = format!("Cannot flush Claude helper input: {err}");
+            let message = format!("Cannot flush AI runner input: {err}");
             append_ai_log(&paths, LogLevel::Error, "runner", &message);
             let _ = terminate_process_tree(child_pid);
             return Err(message);
@@ -93,11 +90,11 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| "Cannot read Claude helper stdout".to_string())?;
+        .ok_or_else(|| "Cannot read AI runner stdout".to_string())?;
     let stderr = child
         .stderr
         .take()
-        .ok_or_else(|| "Cannot read Claude helper stderr".to_string())?;
+        .ok_or_else(|| "Cannot read AI runner stderr".to_string())?;
     register_ai_process(&request_id, child_pid);
 
     let app_for_stdout = app.clone();
@@ -163,7 +160,7 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
                 let error = event
                     .get("error")
                     .and_then(Value::as_str)
-                    .unwrap_or("Claude helper emitted an error");
+                    .unwrap_or("AI runner emitted an error");
                 append_ai_log(&paths_for_log, LogLevel::Error, "runner", &format!("event error: {error}"));
             }
 
@@ -203,7 +200,7 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
                     .map(|buffer| buffer.trim().to_string())
                     .unwrap_or_default();
                 let error = if stderr_text.is_empty() {
-                    format!("Claude helper exited with status {status}")
+                    format!("AI runner exited with status {status}")
                 } else {
                     stderr_text
                 };

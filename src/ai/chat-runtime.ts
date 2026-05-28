@@ -92,7 +92,7 @@ export class ChatRuntime {
     this.sessions = folder ? await this.loadSessions() : [];
     this.conversation = {
       id: `conv-${Date.now()}`,
-      providerId: this.aiState?.settings.providerId ?? 'claude',
+      providerId: this.aiState?.settings.providerId ?? 'pi',
       providerState: {},
       messages: [],
     };
@@ -236,7 +236,7 @@ export class ChatRuntime {
     } catch (error) {
       if (this.currentRequestId !== requestId) return;
       const message = error instanceof Error ? error.message : String(error);
-      this.finishWithError(message || '打断 Claude 失败。');
+      this.finishWithError(message || '打断失败。');
     }
   }
 
@@ -370,17 +370,8 @@ export class ChatRuntime {
   }
 
   private cleanProviderState(state: ProviderState): ProviderState {
-    const provider = this.conversation.providerId;
-    if (provider === 'pi') {
-      const { piSessionId, piSessionFile } = state as Record<string, unknown>;
-      return { ...(piSessionId ? { piSessionId } : {}), ...(piSessionFile ? { piSessionFile } : {}) } as ProviderState;
-    }
-    if (provider === 'codex') {
-      const { codexThreadId } = state as Record<string, unknown>;
-      return { ...(codexThreadId ? { codexThreadId } : {}) } as ProviderState;
-    }
-    const { claudeSessionId } = state as Record<string, unknown>;
-    return { ...(claudeSessionId ? { claudeSessionId } : {}) } as ProviderState;
+    const { piSessionId, piSessionFile } = state as Record<string, unknown>;
+    return { ...(piSessionId ? { piSessionId } : {}), ...(piSessionFile ? { piSessionFile } : {}) } as ProviderState;
   }
 
   private currentAssistant(): ChatMessage | null {
@@ -556,12 +547,11 @@ export class ChatRuntime {
   }
 
   private defaultProviderId(): ProviderId {
-    return this.aiState?.settings.providerId ?? 'claude';
+    return this.aiState?.settings.providerId ?? 'pi';
   }
 
-  private providerLabel(providerId: ProviderId = this.conversation.providerId): string {
-    if (providerId === 'pi') return 'Pi';
-    return providerId === 'codex' ? 'Codex' : 'Claude Code';
+  private providerLabel(_providerId: ProviderId = this.conversation.providerId): string {
+    return 'Pi';
   }
 }
 
@@ -581,7 +571,7 @@ function isConversation(value: unknown): value is Conversation {
   const conversation = value as Partial<Conversation>;
   return (
     typeof conversation.id === 'string'
-    && (conversation.providerId === 'pi' || conversation.providerId === 'claude' || conversation.providerId === 'codex')
+    && conversation.providerId === 'pi'
     && typeof conversation.providerState === 'object'
     && Array.isArray(conversation.messages)
   );

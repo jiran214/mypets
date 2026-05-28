@@ -1,7 +1,7 @@
 mod ai_commands;
 mod ai_models;
 mod ai_payload;
-mod ai_process;
+pub(crate) mod ai_process;
 mod ai_runner;
 mod ai_skills;
 mod ai_storage;

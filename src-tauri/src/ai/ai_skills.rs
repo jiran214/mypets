@@ -17,24 +17,8 @@ pub(crate) fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-fn codex_home_dir() -> Option<PathBuf> {
-    std::env::var("CODEX_HOME")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .map(PathBuf::from)
-        .or_else(|| home_dir().map(|home| home.join(".codex")))
-}
-
 pub(crate) fn default_provider_id() -> String {
     "pi".to_string()
-}
-
-fn provider_skill_dir_name(provider_id: &str) -> &str {
-    match provider_id {
-        "pi" => ".pi",
-        "codex" => ".codex",
-        _ => ".claude",
-    }
 }
 
 fn parse_skill_md(path: &Path) -> Option<SkillInfo> {
@@ -116,46 +100,28 @@ fn scan_skills_dir(dir: &Path, scope: &str) -> Vec<SkillInfo> {
     skills
 }
 
-pub(crate) fn collect_all_skills(workspace_dir: &Path, provider_id: &str) -> Vec<SkillInfo> {
+pub(crate) fn collect_all_skills(workspace_dir: &Path, _provider_id: &str) -> Vec<SkillInfo> {
     let mut skills = Vec::new();
-    let provider_dir = provider_skill_dir_name(provider_id);
 
-    if provider_id != "codex" {
-        skills.extend(scan_skills_dir(
-            &workspace_dir.join(&provider_dir).join("skills"),
-            "workspace",
-        ));
-        if provider_id == "pi" {
-            skills.extend(scan_skills_dir(
-                &workspace_dir.join(".agents").join("skills"),
-                "workspace",
-            ));
-        }
-    }
+    skills.extend(scan_skills_dir(
+        &workspace_dir.join(".pi").join("skills"),
+        "workspace",
+    ));
+    skills.extend(scan_skills_dir(
+        &workspace_dir.join(".agents").join("skills"),
+        "workspace",
+    ));
 
     if let Some(home) = home_dir() {
-        if provider_id != "codex" {
-            skills.extend(scan_skills_dir(&home.join(".wimipet").join("skills"), "builtin"));
-        }
-        if provider_id == "pi" {
-            skills.extend(scan_skills_dir(
-                &home.join(".pi").join("agent").join("skills"),
-                "global",
-            ));
-            skills.extend(scan_skills_dir(
-                &home.join(".agents").join("skills"),
-                "global",
-            ));
-        } else if provider_id == "codex" {
-            if let Some(codex_home) = codex_home_dir() {
-                skills.extend(scan_skills_dir(&codex_home.join("skills"), "global"));
-            }
-        } else {
-            skills.extend(scan_skills_dir(
-                &home.join(&provider_dir).join("skills"),
-                "global",
-            ));
-        }
+        skills.extend(scan_skills_dir(&home.join(".wimipet").join("skills"), "builtin"));
+        skills.extend(scan_skills_dir(
+            &home.join(".pi").join("agent").join("skills"),
+            "global",
+        ));
+        skills.extend(scan_skills_dir(
+            &home.join(".agents").join("skills"),
+            "global",
+        ));
     }
 
     skills

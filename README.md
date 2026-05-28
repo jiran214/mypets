@@ -2,7 +2,7 @@
 
 [English](./README_EN.md)
 
-Tauri 2 桌宠应用 — 支持 codex pet。
+Tauri 2 桌宠应用 — 内置 AI 聊天。
 
 <p align="center">
   <img src="/assets/image.png" alt="着陆页" width="45%" />

@@ -508,7 +508,7 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
 
         <Separator className={cn(sidebarCollapsed && 'w-10')} />
 
-        <ScrollArea className={cn('min-h-0 flex-1', sidebarCollapsed ? 'w-12' : 'w-full')}>
+        <ScrollArea type="scroll" className={cn('min-h-0 flex-1', sidebarCollapsed ? 'w-12' : 'w-full')}>
           {loading ? (
             sidebarCollapsed ? (
               <div className="h-10" aria-hidden="true" />
@@ -954,22 +954,6 @@ function defaultAiSettings(): AiSettings {
       disabledSkills: [],
       extraSkillPaths: '',
     },
-    claude: {
-      pathToClaudeCodeExecutable: '',
-      permissionMode: 'default',
-      thinkingIntensity: 'medium',
-      useUserSettings: false,
-      customEnvText: '',
-      disabledSkills: [],
-    },
-    codex: {
-      pathToCodexExecutable: '',
-      model: '',
-      approvalPolicy: 'on-request',
-      reasoningEffort: 'medium',
-      customEnvText: '',
-      disabledSkills: [],
-    },
   };
 }
 
@@ -987,16 +971,6 @@ function normalizeSettings(settings: AiSettings | null | undefined): AiSettings 
       ...settings?.pi,
       provider: settings?.pi?.provider || defaults.pi.provider,
       disabledSkills: settings?.pi?.disabledSkills ?? [],
-    },
-    claude: {
-      ...defaults.claude,
-      ...settings?.claude,
-      disabledSkills: settings?.claude?.disabledSkills ?? [],
-    },
-    codex: {
-      ...defaults.codex,
-      ...settings?.codex,
-      disabledSkills: settings?.codex?.disabledSkills ?? [],
     },
     displayName: settings?.displayName ?? '',
   };

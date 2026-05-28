@@ -47,32 +47,16 @@ export function SkillSettings({
     };
   }, [readyWorkspace, settingsDraft.providerId]);
 
-  const disabledSkills = settingsDraft.providerId === 'pi'
-    ? settingsDraft.pi.disabledSkills
-    : settingsDraft.providerId === 'codex'
-      ? settingsDraft.codex.disabledSkills
-      : settingsDraft.claude.disabledSkills;
+  const disabledSkills = settingsDraft.pi.disabledSkills;
 
   const toggleSkill = (name: string, enabled: boolean): void => {
     const next = enabled
       ? disabledSkills.filter((n) => n !== name)
       : [...new Set([...disabledSkills, name])];
-    if (settingsDraft.providerId === 'pi') {
-      onSettingsChange({
-        ...settingsDraft,
-        pi: { ...settingsDraft.pi, disabledSkills: next },
-      });
-    } else if (settingsDraft.providerId === 'codex') {
-      onSettingsChange({
-        ...settingsDraft,
-        codex: { ...settingsDraft.codex, disabledSkills: next },
-      });
-    } else {
-      onSettingsChange({
-        ...settingsDraft,
-        claude: { ...settingsDraft.claude, disabledSkills: next },
-      });
-    }
+    onSettingsChange({
+      ...settingsDraft,
+      pi: { ...settingsDraft.pi, disabledSkills: next },
+    });
   };
 
   const workspaceSkills = skills.filter((s) => s.scope === 'workspace');
@@ -108,11 +92,6 @@ export function SkillSettings({
     <FieldSet disabled={disabled}>
       <FieldLegend>技能</FieldLegend>
       <FieldGroup>
-        {settingsDraft.providerId === 'codex' && (
-          <div className="rounded-lg border border-dashed px-3 py-3 text-sm text-muted-foreground">
-            Codex 会读取全局 Codex 配置中的技能；这里的开关会作为本应用会话的禁用提示发送给 Codex。
-          </div>
-        )}
         {loading ? (
           <div className="py-6 text-center text-sm text-muted-foreground">加载中...</div>
         ) : !hasSkills ? (
@@ -133,16 +112,10 @@ export function SkillSettings({
                 {builtinSkills.map(renderSkillItem)}
               </div>
             )}
-            {settingsDraft.providerId === 'codex' || settingsDraft.claude.useUserSettings ? (
-              globalSkills.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  <div className="text-xs font-medium text-muted-foreground">全局技能</div>
-                  {globalSkills.map(renderSkillItem)}
-                </div>
-              )
-            ) : (
-              <div className="rounded-lg border border-dashed px-3 py-3 text-xs text-muted-foreground">
-                未加载用户配置
+            {globalSkills.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <div className="text-xs font-medium text-muted-foreground">全局技能</div>
+                {globalSkills.map(renderSkillItem)}
               </div>
             )}
           </>

@@ -228,7 +228,7 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
     let helper = match helper_path(&app) {
         Ok(path) => path,
         Err(err) => {
-            append_ai_log(&paths, LogLevel::Error, "commands", &format!("Cannot resolve Claude helper: {err}"));
+            append_ai_log(&paths, LogLevel::Error, "commands", &format!("Cannot resolve AI runner: {err}"));
             return Err(err);
         }
     };
@@ -245,7 +245,6 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
         provider_id: provider_id.clone(),
         paths: paths.clone(),
         helper,
-        claude_dir: paths.claude_dir.clone(),
         workspace_dir: paths.workspace_dir.clone(),
         payload,
     };
@@ -293,10 +292,10 @@ pub fn cancel_ai_chat_message(app: AppHandle, request_id: String) -> Result<(), 
 pub fn answer_ai_tool_question(request: AiToolQuestionAnswerRequest) -> Result<(), String> {
     let writer = tool_input_writers()
         .lock()
-        .map_err(|_| "Cannot access Claude helper input".to_string())?
+        .map_err(|_| "Cannot access AI runner input".to_string())?
         .get(&request.request_id)
         .cloned()
-        .ok_or_else(|| "Claude request is no longer waiting for input".to_string())?;
+        .ok_or_else(|| "AI request is no longer waiting for input".to_string())?;
 
     let payload = json!({
         "type": "tool_response",
@@ -306,7 +305,7 @@ pub fn answer_ai_tool_question(request: AiToolQuestionAnswerRequest) -> Result<(
     });
     let mut writer = writer
         .lock()
-        .map_err(|_| "Cannot lock Claude helper input".to_string())?;
+        .map_err(|_| "Cannot lock AI runner input".to_string())?;
     writeln!(writer, "{}", payload).map_err(|err| format!("Cannot write tool response: {err}"))?;
     writer
         .flush()

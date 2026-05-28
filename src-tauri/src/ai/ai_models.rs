@@ -36,40 +36,6 @@ pub struct PiSettings {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ClaudeSettings {
-    #[serde(default)]
-    pub path_to_claude_code_executable: String,
-    #[serde(default = "default_permission_mode")]
-    pub permission_mode: String,
-    #[serde(default = "default_thinking_intensity")]
-    pub thinking_intensity: String,
-    #[serde(default)]
-    pub use_user_settings: bool,
-    #[serde(default)]
-    pub custom_env_text: String,
-    #[serde(default)]
-    pub disabled_skills: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexSettings {
-    #[serde(default)]
-    pub path_to_codex_executable: String,
-    #[serde(default)]
-    pub model: String,
-    #[serde(default = "default_codex_approval_policy")]
-    pub approval_policy: String,
-    #[serde(default = "default_codex_reasoning_effort")]
-    pub reasoning_effort: String,
-    #[serde(default)]
-    pub custom_env_text: String,
-    #[serde(default)]
-    pub disabled_skills: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct AiSettings {
     #[serde(default = "default_provider_id")]
     pub provider_id: String,
@@ -87,10 +53,6 @@ pub struct AiSettings {
     pub display_name: String,
     #[serde(default)]
     pub pi: PiSettings,
-    #[serde(default)]
-    pub claude: ClaudeSettings,
-    #[serde(default)]
-    pub codex: CodexSettings,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,7 +60,6 @@ pub struct AiSettings {
 pub struct AiPaths {
     pub workspace_dir: String,
     pub wimipet_dir: String,
-    pub claude_dir: String,
     pub sessions_dir: String,
     pub log_file: String,
 }
@@ -233,19 +194,6 @@ pub struct AutoTask {
     pub current_conversation_id: String,
 }
 
-impl Default for ClaudeSettings {
-    fn default() -> Self {
-        Self {
-            path_to_claude_code_executable: String::new(),
-            permission_mode: default_permission_mode(),
-            thinking_intensity: default_thinking_intensity(),
-            use_user_settings: false,
-            custom_env_text: String::new(),
-            disabled_skills: Vec::new(),
-        }
-    }
-}
-
 impl Default for PiSettings {
     fn default() -> Self {
         Self {
@@ -266,19 +214,6 @@ impl Default for PiSettings {
     }
 }
 
-impl Default for CodexSettings {
-    fn default() -> Self {
-        Self {
-            path_to_codex_executable: String::new(),
-            model: String::new(),
-            approval_policy: default_codex_approval_policy(),
-            reasoning_effort: default_codex_reasoning_effort(),
-            custom_env_text: String::new(),
-            disabled_skills: Vec::new(),
-        }
-    }
-}
-
 impl Default for AiSettings {
     fn default() -> Self {
         Self {
@@ -290,8 +225,6 @@ impl Default for AiSettings {
             pet_persona: default_pet_persona(),
             display_name: String::new(),
             pi: PiSettings::default(),
-            claude: ClaudeSettings::default(),
-            codex: CodexSettings::default(),
         }
     }
 }
@@ -321,10 +254,6 @@ default_fn!(default_pi_thinking_level, String, "medium");
 default_fn!(default_pi_auto_compaction_enabled, bool, true);
 default_fn!(default_pi_auto_retry_enabled, bool, true);
 default_fn!(default_pi_queue_mode, String, "one-at-a-time");
-default_fn!(default_permission_mode, String, "default");
-default_fn!(default_thinking_intensity, String, "medium");
-default_fn!(default_codex_approval_policy, String, "on-request");
-default_fn!(default_codex_reasoning_effort, String, "medium");
 default_fn!(default_pet_gravity_enabled, bool, true);
 default_fn!(default_pet_scale, f64, 1.0);
 default_fn!(default_pet_persona, String, "你是这个桌宠角色在用户电脑桌面上的人格化伙伴。你长期陪伴用户工作、学习和休息，语气自然、温和、有一点俏皮，但不喧宾夺主。你会把自己当作屏幕边缘的小生命：能观察用户给出的文字、任务和上下文，却不会假装看到屏幕上没有提供的信息。回答要优先简洁、可执行，用户焦虑时先帮他把问题拆小，用户专注时少打扰。你可以偶尔使用符合桌宠气质的短句和轻微拟声，但不要大量卖萌、不要刷表情。遇到技术问题时像可靠的同伴一样给出明确步骤；遇到情绪问题时先共情，再提出具体下一步。你不替用户做危险决定，不编造事实，不夸大能力。默认使用中文，除非用户要求其他语言。");

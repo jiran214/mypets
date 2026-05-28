@@ -15,7 +15,6 @@ use super::AiPaths;
 pub(crate) struct StoragePaths {
     pub workspace_dir: PathBuf,
     pub wimipet_dir: PathBuf,
-    pub claude_dir: PathBuf,
     pub sessions_dir: PathBuf,
     pub log_file: PathBuf,
 }
@@ -58,14 +57,12 @@ fn validate_workspace_path(workspace_folder: &str) -> Result<PathBuf, String> {
 fn storage_paths(workspace_folder: &str) -> Result<StoragePaths, String> {
     let workspace_dir = validate_workspace_path(workspace_folder)?;
     let wimipet_dir = workspace_dir.join(".wimipet");
-    let claude_dir = workspace_dir.join(".claude");
     let sessions_dir = wimipet_dir.join("sessions");
     let log_file = wimipet_dir.join("logs").join("ai.log");
 
     Ok(StoragePaths {
         workspace_dir,
         wimipet_dir,
-        claude_dir,
         sessions_dir,
         log_file,
     })
@@ -75,7 +72,6 @@ pub(crate) fn public_paths(paths: &StoragePaths) -> AiPaths {
     AiPaths {
         workspace_dir: path_to_string(&paths.workspace_dir),
         wimipet_dir: path_to_string(&paths.wimipet_dir),
-        claude_dir: path_to_string(&paths.claude_dir),
         sessions_dir: path_to_string(&paths.sessions_dir),
         log_file: path_to_string(&paths.log_file),
     }
@@ -87,23 +83,9 @@ fn ensure_storage(paths: &StoragePaths) -> Result<(), String> {
     if let Some(log_dir) = paths.log_file.parent() {
         fs::create_dir_all(log_dir).map_err(|err| err.to_string())?;
     }
-    fs::create_dir_all(paths.claude_dir.join("commands")).map_err(|err| err.to_string())?;
-    fs::create_dir_all(paths.claude_dir.join("skills")).map_err(|err| err.to_string())?;
-    fs::create_dir_all(paths.claude_dir.join("agents")).map_err(|err| err.to_string())?;
-    fs::create_dir_all(paths.claude_dir.join("projects")).map_err(|err| err.to_string())?;
     let pi_dir = paths.workspace_dir.join(".pi");
     fs::create_dir_all(pi_dir.join("skills")).map_err(|err| err.to_string())?;
     fs::create_dir_all(pi_dir.join("prompts")).map_err(|err| err.to_string())?;
-
-    let settings_path = paths.claude_dir.join("settings.json");
-    if !settings_path.exists() {
-        fs::write(&settings_path, "{\n}\n").map_err(|err| err.to_string())?;
-    }
-
-    let mcp_path = paths.claude_dir.join("mcp.json");
-    if !mcp_path.exists() {
-        fs::write(&mcp_path, "{\n  \"mcpServers\": {}\n}\n").map_err(|err| err.to_string())?;
-    }
 
     let pi_settings_path = pi_dir.join("settings.json");
     if !pi_settings_path.exists() {

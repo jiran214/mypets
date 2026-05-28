@@ -1,12 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   AiSettings,
-  CodexApprovalPolicy,
-  CodexReasoningEffort,
-  PermissionMode,
   PiThinkingLevel,
   ProviderId,
-  ThinkingIntensity,
 } from '@/ai/ai-types';
 import type { ReadyPetWorkspace } from '@/workspaces';
 import { loadPiProviderAuth, savePiProviderAuth } from '@/ai/ai-api';
@@ -28,25 +24,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { SettingDropdown } from './setting-dropdown';
 
-const PERMISSION_MODE_OPTIONS: { value: PermissionMode; label: string; description: string }[] = [
-  { value: 'default', label: 'default', description: '标准模式，执行有风险操作前会询问确认' },
-  { value: 'acceptEdits', label: 'acceptEdits', description: '自动接受文件编辑，敏感操作仍可能需要权限' },
-  { value: 'plan', label: 'plan', description: '计划模式，批准后再执行' },
-  { value: 'auto', label: 'auto', description: '自动判断是否批准工具调用' },
-  { value: 'dontAsk', label: 'dontAsk', description: '未预先允许的操作直接拒绝' },
-  { value: 'bypassPermissions', label: 'bypassPermissions', description: '跳过权限检查，风险最高' },
-];
-const THINKING_INTENSITY_OPTIONS: { value: ThinkingIntensity; label: string }[] = [
-  { value: 'low', label: 'low' },
-  { value: 'medium', label: 'medium' },
-  { value: 'high', label: 'high' },
-  { value: 'xhigh', label: 'xhigh' },
-  { value: 'max', label: 'max' },
-];
 const PROVIDER_OPTIONS: { value: ProviderId; label: string; description: string }[] = [
   { value: 'pi', label: 'Pi', description: '使用 Pi Coding Agent RPC 模式。' },
-  { value: 'claude', label: 'Claude Code', description: '使用 Claude Agent SDK 与本地 Claude Code。' },
-  { value: 'codex', label: 'Codex', description: '使用 OpenAI Codex app-server 协议。' },
 ];
 const PI_PROVIDER_OPTIONS: { value: string; label: string; envVar: string; authKey: string }[] = [
   { value: 'anthropic', label: 'Anthropic', envVar: 'ANTHROPIC_API_KEY', authKey: 'anthropic' },
@@ -84,21 +63,6 @@ const PI_THINKING_OPTIONS: { value: PiThinkingLevel; label: string }[] = [
   { value: 'high', label: 'high' },
   { value: 'xhigh', label: 'xhigh' },
 ];
-const CODEX_APPROVAL_OPTIONS: { value: CodexApprovalPolicy; label: string; description: string }[] = [
-  { value: 'untrusted', label: 'untrusted', description: '高风险操作默认先请求批准。' },
-  { value: 'on-failure', label: 'on-failure', description: '先尝试受限执行，失败后再请求放宽。' },
-  { value: 'on-request', label: 'on-request', description: '由 Codex 自主决定何时发起批准请求。' },
-  { value: 'never', label: 'never', description: '不请求额外批准，受限于当前策略。' },
-];
-const CODEX_REASONING_OPTIONS: { value: CodexReasoningEffort; label: string }[] = [
-  { value: 'none', label: 'none' },
-  { value: 'minimal', label: 'minimal' },
-  { value: 'low', label: 'low' },
-  { value: 'medium', label: 'medium' },
-  { value: 'high', label: 'high' },
-  { value: 'xhigh', label: 'xhigh' },
-];
-
 function piProviderOption(value: string): (typeof PI_PROVIDER_OPTIONS)[number] | undefined {
   const normalized = value.trim();
   return PI_PROVIDER_OPTIONS.find((option) => option.value === normalized);
@@ -118,10 +82,6 @@ export function AgentSettings({
   const disabled = !readyWorkspace;
   const selectedProvider = PROVIDER_OPTIONS.find((option) => option.value === settingsDraft.providerId);
   const selectedPiThinkingLevel = PI_THINKING_OPTIONS.find((option) => option.value === settingsDraft.pi.thinkingLevel);
-  const selectedPermissionMode = PERMISSION_MODE_OPTIONS.find((option) => option.value === settingsDraft.claude.permissionMode);
-  const selectedThinkingIntensity = THINKING_INTENSITY_OPTIONS.find((option) => option.value === settingsDraft.claude.thinkingIntensity);
-  const selectedCodexApprovalPolicy = CODEX_APPROVAL_OPTIONS.find((option) => option.value === settingsDraft.codex.approvalPolicy);
-  const selectedCodexReasoningEffort = CODEX_REASONING_OPTIONS.find((option) => option.value === settingsDraft.codex.reasoningEffort);
   const selectedPiProvider = piProviderOption(settingsDraft.pi.provider);
   const piProviderValue = settingsDraft.pi.provider.trim();
   const knownPiProvider = Boolean(selectedPiProvider);
@@ -218,9 +178,7 @@ export function AgentSettings({
             </SettingDropdown>
           </Field>
 
-          {settingsDraft.providerId === 'pi' ? (
-            <>
-              <Field data-disabled={disabled}>
+          <Field data-disabled={disabled}>
                 <FieldLabel>Pi provider</FieldLabel>
                 <SettingDropdown
                   disabled={disabled}
@@ -375,212 +333,6 @@ export function AgentSettings({
                   })}
                 />
               </Field>
-            </>
-          ) : settingsDraft.providerId === 'claude' ? (
-            <>
-          <Field data-disabled={disabled}>
-            <FieldLabel>权限模式</FieldLabel>
-            <SettingDropdown
-              disabled={disabled}
-              value={selectedPermissionMode?.label ?? settingsDraft.claude.permissionMode}
-              menuClassName="max-w-[32rem]"
-            >
-              <DropdownMenuRadioGroup
-                value={settingsDraft.claude.permissionMode}
-                onValueChange={(value) => onSettingsChange({
-                  ...settingsDraft,
-                  claude: { ...settingsDraft.claude, permissionMode: value as PermissionMode },
-                })}
-              >
-                {PERMISSION_MODE_OPTIONS.map((option) => (
-                  <DropdownMenuRadioItem
-                    key={option.value}
-                    value={option.value}
-                    className="items-start gap-2 py-2 pr-8 whitespace-normal break-words leading-5"
-                  >
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="font-medium">{option.label}</span>
-                      <span className="text-xs text-muted-foreground">{option.description}</span>
-                    </span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </SettingDropdown>
-          </Field>
-
-          <Field data-disabled={disabled}>
-            <FieldLabel>思考强度</FieldLabel>
-            <SettingDropdown
-              disabled={disabled}
-              value={selectedThinkingIntensity?.label ?? settingsDraft.claude.thinkingIntensity}
-            >
-              <DropdownMenuRadioGroup
-                value={settingsDraft.claude.thinkingIntensity}
-                onValueChange={(value) => onSettingsChange({
-                  ...settingsDraft,
-                  claude: { ...settingsDraft.claude, thinkingIntensity: value as ThinkingIntensity },
-                })}
-              >
-                {THINKING_INTENSITY_OPTIONS.map((option) => (
-                  <DropdownMenuRadioItem key={option.value} value={option.value}>
-                    {option.label}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </SettingDropdown>
-          </Field>
-
-          <Field className="lg:col-span-2" data-disabled={disabled}>
-            <FieldLabel htmlFor="claude-executable">Claude CLI 路径</FieldLabel>
-            <Input
-              id="claude-executable"
-              value={settingsDraft.claude.pathToClaudeCodeExecutable}
-              disabled={disabled}
-              placeholder="不填写会自动查找 Claude"
-              onChange={(event) => onSettingsChange({
-                ...settingsDraft,
-                claude: {
-                  ...settingsDraft.claude,
-                  pathToClaudeCodeExecutable: event.currentTarget.value,
-                },
-              })}
-            />
-          </Field>
-
-          <Field className="lg:col-span-2" orientation="horizontal" data-disabled={disabled}>
-            <Switch
-              id="claude-user-settings"
-              disabled={disabled}
-              checked={settingsDraft.claude.useUserSettings}
-              onCheckedChange={(checked) => onSettingsChange({
-                ...settingsDraft,
-                claude: { ...settingsDraft.claude, useUserSettings: checked },
-              })}
-            />
-            <FieldContent>
-              <FieldLabel htmlFor="claude-user-settings">加载用户 Claude 设置</FieldLabel>
-              <FieldDescription>读取用户目录下的 Claude 配置。</FieldDescription>
-            </FieldContent>
-          </Field>
-
-          <Field className="lg:col-span-2" data-disabled={disabled}>
-            <FieldLabel htmlFor="claude-custom-env">自定义环境变量</FieldLabel>
-            <Textarea
-              id="claude-custom-env"
-              value={settingsDraft.claude.customEnvText}
-              disabled={disabled}
-              rows={7}
-              placeholder="KEY=value"
-              onChange={(event) => onSettingsChange({
-                ...settingsDraft,
-                claude: { ...settingsDraft.claude, customEnvText: event.currentTarget.value },
-              })}
-            />
-          </Field>
-            </>
-          ) : (
-            <>
-              <Field data-disabled={disabled}>
-                <FieldLabel>批准策略</FieldLabel>
-                <SettingDropdown
-                  disabled={disabled}
-                  value={selectedCodexApprovalPolicy?.label ?? settingsDraft.codex.approvalPolicy}
-                  menuClassName="max-w-[32rem]"
-                >
-                  <DropdownMenuRadioGroup
-                    value={settingsDraft.codex.approvalPolicy}
-                    onValueChange={(value) => onSettingsChange({
-                      ...settingsDraft,
-                      codex: { ...settingsDraft.codex, approvalPolicy: value as CodexApprovalPolicy },
-                    })}
-                  >
-                    {CODEX_APPROVAL_OPTIONS.map((option) => (
-                      <DropdownMenuRadioItem
-                        key={option.value}
-                        value={option.value}
-                        className="items-start gap-2 py-2 pr-8 whitespace-normal break-words leading-5"
-                      >
-                        <span className="flex min-w-0 flex-col gap-0.5">
-                          <span className="font-medium">{option.label}</span>
-                          <span className="text-xs text-muted-foreground">{option.description}</span>
-                        </span>
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </SettingDropdown>
-              </Field>
-
-              <Field data-disabled={disabled}>
-                <FieldLabel>推理强度</FieldLabel>
-                <SettingDropdown
-                  disabled={disabled}
-                  value={selectedCodexReasoningEffort?.label ?? settingsDraft.codex.reasoningEffort}
-                >
-                  <DropdownMenuRadioGroup
-                    value={settingsDraft.codex.reasoningEffort}
-                    onValueChange={(value) => onSettingsChange({
-                      ...settingsDraft,
-                      codex: { ...settingsDraft.codex, reasoningEffort: value as CodexReasoningEffort },
-                    })}
-                  >
-                    {CODEX_REASONING_OPTIONS.map((option) => (
-                      <DropdownMenuRadioItem key={option.value} value={option.value}>
-                        {option.label}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </SettingDropdown>
-              </Field>
-
-              <Field className="lg:col-span-2" data-disabled={disabled}>
-                <FieldLabel htmlFor="codex-executable">Codex 可执行文件</FieldLabel>
-                <Input
-                  id="codex-executable"
-                  value={settingsDraft.codex.pathToCodexExecutable}
-                  disabled={disabled}
-                  placeholder="不填写会自动查找 codex"
-                  onChange={(event) => onSettingsChange({
-                    ...settingsDraft,
-                    codex: {
-                      ...settingsDraft.codex,
-                      pathToCodexExecutable: event.currentTarget.value,
-                    },
-                  })}
-                />
-              </Field>
-
-              <Field className="lg:col-span-2" data-disabled={disabled}>
-                <FieldLabel htmlFor="codex-model">模型</FieldLabel>
-                <Input
-                  id="codex-model"
-                  value={settingsDraft.codex.model}
-                  disabled={disabled}
-                  placeholder="留空则使用 Codex 默认模型"
-                  onChange={(event) => onSettingsChange({
-                    ...settingsDraft,
-                    codex: { ...settingsDraft.codex, model: event.currentTarget.value },
-                  })}
-                />
-                <FieldDescription>例如 `gpt-5.3-codex`。留空时沿用 Codex 当前默认配置。</FieldDescription>
-              </Field>
-
-              <Field className="lg:col-span-2" data-disabled={disabled}>
-                <FieldLabel htmlFor="codex-custom-env">自定义环境变量</FieldLabel>
-                <Textarea
-                  id="codex-custom-env"
-                  value={settingsDraft.codex.customEnvText}
-                  disabled={disabled}
-                  rows={7}
-                  placeholder="KEY=value"
-                  onChange={(event) => onSettingsChange({
-                    ...settingsDraft,
-                    codex: { ...settingsDraft.codex, customEnvText: event.currentTarget.value },
-                  })}
-                />
-                <FieldDescription>Codex 默认会读取用户登录态和 `~/.codex` 配置。</FieldDescription>
-              </Field>
-            </>
-          )}
         </FieldGroup>
       </FieldSet>
 

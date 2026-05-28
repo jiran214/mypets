@@ -10,10 +10,8 @@
 这两个不是独立概念，而是同一个 Session 实体的元数据视角和内容视角。
 
 ### Provider 会话标识 (ProviderSessionHandle)
-各 AI provider 内部用于恢复会话的不透明标识符，包含在 `ProviderState` 中：
+Pi provider 内部用于恢复会话的不透明标识符，包含在 `ProviderState` 中：
 - `piSessionId` / `piSessionFile` — Pi CLI 的会话标识
-- `claudeSessionId` — Claude Agent SDK 的 conversation ID
-- `codexThreadId` — Codex 的 thread 概念
 
 注意：当前这些标识**只写不读**——从 provider 获取后保存到 localStorage，但发送新消息时不会传回 provider 来恢复会话。Provider 可能自行恢复上下文，但应用层未主动使用这些值。
 
@@ -26,7 +24,7 @@
 一个注册到应用中的桌宠文件夹。文件夹路径是其唯一标识。每个工作空间包含：
 - `pet.json` — 桌宠清单
 - `.wimipet/` — 应用数据（设置、会话、任务）
-- `.claude/` / `.pi/` — provider 配置
+- `.pi/` — Pi provider 配置
 
 ### 桌宠 (Pet / PetMeta)
 桌宠的身份定义，来自 `pet.json`。字段：`id`、`description`、`spritesheetPath`、可选 `kind`。
@@ -46,12 +44,12 @@
 
 ### 工作空间设置 (AiSettings)
 存储在 `.wimipet/settings.json`，虽然代码中是一个类型，但领域上包含三类配置：
-- **AI 配置** — `providerId`、`pi`、`claude`、`codex`、`petPersona`
+- **AI 配置** — `providerId`、`pi`、`petPersona`
 - **窗口属性** — `petAlwaysOnTop`、`petGravityEnabled`、`petScale`、`petResizeEnabled`
 - **显示名称** — `displayName`（覆盖 `pet.json` 中的原始名称）
 
 ### Provider（两个层级，注意区分）
-- **AI 后端 (ProviderId)** — Wimi Pet 支持的三种 AI 后端：`'pi'`、`'claude'`、`'codex'`。代码中用 `ProviderId` 类型，领域概念是"AI 后端"
+- **AI 后端 (ProviderId)** — Wimi Pet 使用 Pi 作为 AI 后端。代码中用 `ProviderId` 类型（值为 `'pi'`），领域概念是"AI 后端"
 - **LLM 提供商 (PiSettings.provider)** — Pi CLI 内部对接的语言模型服务，是 Pi 工具自己的配置项，与应用层的 ProviderId 无关
 
 ## UI 表现属性
@@ -75,7 +73,7 @@
 
 ## 运行时架构
 
-三段式运行时：WebView (TS) → Rust (Tauri) → Node (Claude Agent SDK)
+三段式运行时：WebView (TS) → Rust (Tauri) → Node (Pi Agent)
 
 | 运行时 | 职责 | 对应上下文 |
 |---|---|---|

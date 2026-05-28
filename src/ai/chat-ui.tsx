@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { hasTauriRuntime, safeCurrentWindow } from '@/lib/tauri-utils';
 import { getToolQuestionData } from '@/lib/ai-utils';
 import {
-  Brain,
   Check,
   CalendarDays,
   Lightbulb,
@@ -173,31 +172,18 @@ export function mountChatUi(
   );
 }
 
-const THINKING_LEVELS: Record<string, readonly string[]> = {
-  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
-  pi: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
-  codex: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
-};
+const THINKING_LEVELS: readonly string[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 
 function ThinkingSelector({ runtime, disabled }: { runtime: ChatRuntime; disabled?: boolean }): ReactNode {
   const aiState = runtime.getAiState();
   if (!aiState) return null;
 
-  const { providerId, pi, claude, codex } = aiState.settings;
-  const levels = THINKING_LEVELS[providerId] ?? THINKING_LEVELS.claude;
-  const currentLevel = providerId === 'pi' ? pi.thinkingLevel
-    : providerId === 'codex' ? codex.reasoningEffort
-    : claude.thinkingIntensity;
+  const { pi } = aiState.settings;
+  const currentLevel = pi.thinkingLevel;
 
   const handleChange = async (level: string) => {
     const settings = { ...aiState.settings };
-    if (providerId === 'pi') {
-      settings.pi = { ...settings.pi, thinkingLevel: level as typeof pi.thinkingLevel };
-    } else if (providerId === 'codex') {
-      settings.codex = { ...settings.codex, reasoningEffort: level as typeof codex.reasoningEffort };
-    } else {
-      settings.claude = { ...settings.claude, thinkingIntensity: level as typeof claude.thinkingIntensity };
-    }
+    settings.pi = { ...settings.pi, thinkingLevel: level as typeof pi.thinkingLevel };
     const newState = await saveAiSettings(runtime.getWorkspaceFolder(), settings);
     runtime.setAiState(newState);
   };
@@ -216,7 +202,7 @@ function ThinkingSelector({ runtime, disabled }: { runtime: ChatRuntime; disable
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align="start" sideOffset={6}>
         <DropdownMenuRadioGroup value={currentLevel} onValueChange={(v) => { void handleChange(v); }}>
-          {levels.map((level) => (
+          {THINKING_LEVELS.map((level) => (
             <DropdownMenuRadioItem key={level} value={level} className="text-xs">
               {level}
             </DropdownMenuRadioItem>

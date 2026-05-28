@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-Wimi Pet 是一个 Tauri 2 桌面宠物应用——浮动、透明、置顶的精灵动画角色，支持多桌宠同时显示，内置 Claude AI 聊天功能。前端用 TypeScript + Vite + React + Canvas 2D 渲染，后端用 Rust 处理文件系统和 AI 调度。
+Wimi Pet 是一个 Tauri 2 桌面宠物应用——浮动、透明、置顶的精灵动画角色，支持多桌宠同时显示，内置 AI 聊天功能（Pi provider）。前端用 TypeScript + Vite + React + Canvas 2D 渲染，后端用 Rust 处理文件系统和 AI 调度。
 
 @./docs/CONTEXT.md
 
@@ -16,13 +16,17 @@ npm run tauri dev        # 完整开发模式：Vite 前端 + Rust 编译 + 启�
 npm run tauri build      # 生产构建，打包为原生可执行文件
 npm run dev              # 仅前端，Vite 开发服务器 (端口 1420)
 npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
+# CLI 子命令（构建后可用）：
+wimipet tools pomodoro   # 终端番茄钟
+wimipet tools todolist   # 终端待办列表
+wimipet tools countdown  # 终端倒计时
 ```
 
 无测试框架、无 lint 工具、无 CI/CD 配置。
 
 ## 架构要点
 
-### 三段式运行时：WebView (TS) → Tauri (Rust) → Node (Claude Agent SDK)
+### 三段式运行时：WebView (TS) → Tauri (Rust) → Node (AI Provider Runners)
 
 应用有三个运行时，数据流为：
 
@@ -33,7 +37,7 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 
 - **前端 TypeScript** — Canvas 渲染 + DOM 着陆页 + React 聊天 UI
 - **Rust (src-tauri/)** — 文件系统访问、AI 状态管理、启动 Node 子进程
-- **Node (src-node/runner.mjs)** — 多 AI provider 调度器，支持 `pi`（默认）、`claude`、`codex` 三种 provider，stdin 接收 JSON payload，stdout 输出 JSON 行事件
+- **Node (src-node/runner.mjs)** — Pi AI provider runner，stdin 接收 JSON payload，stdout 输出 JSON 行事件
 
 ### Tauri IPC 命令
 
@@ -58,6 +62,9 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 - `open_workspace_in_file_manager` — 在系统文件管理器中打开工作空间
 - `update_pet_display_name` — 更新宠物显示名称
 
+**工具命令（src-tauri/src/tools/）：**
+- `send_tools_command` — 统一入口，支持 pomodoro、todolist、countdown 三种工具操作
+
 所有文件系统访问在 Rust 侧完成，前端只接收元数据和 base64 图片，这是刻意的安全边界。
 
 ### AI 聊天流水线
@@ -66,14 +73,14 @@ npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
 
 1. 前端 `ChatRuntime.send()` → `invoke('send_ai_chat_message', ...)`
 2. Rust 构造 JSON payload，`Command::new("node")` 启动 [runner.mjs](src-node/runner.mjs)
-3. Node 进程通过 stdin 接收 payload，根据 provider 类型分发到对应 runner（`run-claude.mjs`、`run-pi.mjs`、`run-codex.mjs`）
+3. Node 进程通过 stdin 接收 payload，调用 Pi runner
 4. Node 将每个 stream event 写为 JSON line 到 stdout
 5. Rust 读取 stdout，通过 `app.emit("ai-chat-event", event)` 转发到前端
 6. 前端 `listenToAiChatEvents()` 监听事件，`ChatRuntime` 更新状态并通知 UI
 
 事件类型定义在 [ai-types.ts](src/ai/ai-types.ts)：`status`、`session`、`part`、`delta`、`question`、`done`、`cancelled`、`error`。
 
-- `question` 事件用于 Claude 请求用户输入（权限确认或多选问答），前端通过 `answerAiToolQuestion()` 回应
+- `question` 事件用于 AI 请求用户输入（权限确认或多选问答），前端通过 `answerAiToolQuestion()` 回应
 - `cancelled` 事件在用户中断请求后触发
 
 AI 设置存储在每个工作空间的 `.wimipet/settings.json`，会话元数据在 `.wimipet/sessions/`，日志在 `.wimipet/logs/ai.log`。
@@ -87,6 +94,14 @@ Rust AI 模块结构（`src-tauri/src/ai/`）：
 - `ai_process.rs` — 子进程生命周期：PID 跟踪、SIGINT/taskkill 取消
 - `ai_storage.rs` — 存储路径解析、设置持久化、会话元数据、日志
 - `ai_skills.rs` — 从文件系统发现 skill（SKILL.md 解析）
+
+Rust 工具模块结构（`src-tauri/src/tools/`）：
+- `mod.rs` — 模块声明 + re-export
+- `tools_models.rs` — 工具相关结构体定义
+- `tools_commands.rs` — `send_tools_command` 实现
+- `tools_storage.rs` — 工具数据持久化
+- `tools_cli.rs` — CLI 子命令模式（`wimipet tools ...`），支持在终端直接使用 pomodoro/todolist/countdown
+- `tools_pomodoro.rs` / `tools_todolist.rs` / `tools_countdown.rs` — 各工具的具体逻辑
 
 ### 前端渲染
 
@@ -134,12 +149,12 @@ Rust AI 模块结构（`src-tauri/src/ai/`）：
 
 `src/` 按职责分为两个子目录，根目录仅保留入口文件：
 
-- `src/ai/` — AI 聊天相关：`ai-api.ts`、`ai-types.ts`、`chat-runtime.ts`、`chat-ui.tsx`、`auto-tasks.ts`、`auto-task-scheduler.ts`、`file-drop-handler.ts`、`bubble-layout.ts`
+- `src/ai/` — AI 聊天相关：`ai-api.ts`、`ai-types.ts`、`chat-runtime.ts`、`chat-ui.tsx`、`auto-tasks.ts`、`auto-task-scheduler.ts`、`file-drop-handler.ts`、`bubble-layout.ts`、`tools-api.ts`、`tools-types.ts`、`agent-timeline.ts`
 - `src/pet/` — 宠物相关：`pet-loader.ts`、`pet-windows.ts`、`pet-window.ts`、`pet-position.ts`、`pet-scale.ts`、`interaction.ts`、`context-menu.ts`、`animation-data.ts`
 - `src/` 根目录 — `main.ts`（入口）、`renderer.ts`（Canvas 渲染）、`types.ts`、`workspaces.ts`
-- `src/components/` — React 组件（`ui/` 基础组件、`ai-elements/` 聊天组件、`settings/` 设置组件）
+- `src/components/` — React 组件（`ui/` 基础组件、`ai-elements/` 聊天组件、`settings/` 设置组件、`tools/` 工具面板组件）
 - `src/lib/` — 工具函数（`utils.ts`、`ai-utils.ts`、`ai-constants.ts`、`tauri-utils.ts`）
-- `src-node/` — Node.js AI runner（`runner.mjs`、`run-claude.mjs`、`run-pi.mjs`、`run-codex.mjs`、`runner-utils.mjs`）
+- `src-node/` — Node.js AI runner（`runner.mjs`、`run-pi.mjs`、`runner-utils.mjs`）
 
 导入规则：
 - 外部文件引用 AI/Pet 组使用 `@/ai/...` 或 `@/pet/...`
@@ -160,14 +175,14 @@ AI 聊天专用组件在 `src/components/ai-elements/`：流式对话、消息�
 
 ## 关键依赖
 
-- **NPM:** `@tauri-apps/api` ^2、`@tauri-apps/plugin-dialog` ^2、`@anthropic-ai/claude-agent-sdk` ^0.3、`typescript` ~5.6、`vite` ^6、`react` 19、`tailwindcss` ^4、`shadcn` ^4、`streamdown`（流式 Markdown 渲染）、`motion`（动画）、`shiki`（代码高亮）、`ai`（Vercel AI SDK，用于部分类型定义）
+- **NPM:** `@tauri-apps/api` ^2、`@tauri-apps/plugin-dialog` ^2、`@earendil-works/pi-coding-agent` ^0.75、`typescript` ~5.6、`vite` ^6、`react` 19、`tailwindcss` ^4、`shadcn` ^4、`streamdown`（流式 Markdown 渲染）、`motion`（动画）、`shiki`（代码高亮）、`ai`（Vercel AI SDK，用于部分类型定义）
 - **Cargo:** `tauri` 2 (带 `tray-icon`、`protocol-asset`)、`tauri-plugin-dialog` 2、`serde` + `serde_json` 1、`base64` 0.22、`trash` 5
 
 ## 安全模型
 
 Tauri v2 capabilities 定义在 `src-tauri/capabilities/default.json`，应用于 `main` 和 `pet-*` 窗口，仅授予必要的窗口操作、事件监听和文件对话框权限。所有文件系统访问在 Rust 侧完成，前端只接收元数据和 base64 图片。
 
-AI 设置和会话存储在每个工作空间的 `.wimipet/` 目录下，Claude 配置在 `.claude/` 目录下。
+AI 设置和会话存储在每个工作空间的 `.wimipet/` 目录下，Pi 配置在 `.pi/` 目录下。
 
 ## 约定
 
@@ -181,8 +196,8 @@ AI 设置和会话存储在每个工作空间的 `.wimipet/` 目录下，Claude 
 
 Settings 类型（`AiSettings` 及其子类型）在三处有对应定义，修改时需同步：
 
-1. **Rust 结构体**: `src-tauri/src/ai/ai_models.rs` — `AiSettings`, `PiSettings`, `ClaudeSettings`, `CodexSettings`
-2. **TypeScript 接口**: `src/ai-types.ts` — `AiSettings`, `PiSettings`, `ClaudeSettings`, `CodexSettings`
+1. **Rust 结构体**: `src-tauri/src/ai/ai_models.rs` — `AiSettings`, `PiSettings`
+2. **TypeScript 接口**: `src/ai/ai-types.ts` — `AiSettings`, `PiSettings`
 3. **Node payload 构造**: `src-tauri/src/ai/ai_payload.rs` — `build_chat_payload()` 中的 JSON 字段名
 
 修改步骤：

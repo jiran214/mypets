@@ -1,8 +1,4 @@
-export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'auto' | 'dontAsk' | 'bypassPermissions';
-export type ThinkingIntensity = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-export type ProviderId = 'pi' | 'claude' | 'codex';
-export type CodexApprovalPolicy = 'untrusted' | 'on-failure' | 'on-request' | 'never';
-export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type ProviderId = 'pi';
 export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type PiQueueMode = 'all' | 'one-at-a-time';
 
@@ -28,24 +24,6 @@ export interface PiProviderAuth {
   key: string;
 }
 
-export interface ClaudeSettings {
-  pathToClaudeCodeExecutable: string;
-  permissionMode: PermissionMode;
-  thinkingIntensity: ThinkingIntensity;
-  useUserSettings: boolean;
-  customEnvText: string;
-  disabledSkills: string[];
-}
-
-export interface CodexSettings {
-  pathToCodexExecutable: string;
-  model: string;
-  approvalPolicy: CodexApprovalPolicy;
-  reasoningEffort: CodexReasoningEffort;
-  customEnvText: string;
-  disabledSkills: string[];
-}
-
 export interface AiSettings {
   providerId: ProviderId;
   petAlwaysOnTop: boolean;
@@ -55,14 +33,11 @@ export interface AiSettings {
   petPersona: string;
   displayName: string;
   pi: PiSettings;
-  claude: ClaudeSettings;
-  codex: CodexSettings;
 }
 
 export interface AiPaths {
   workspaceDir: string;
   wimipetDir: string;
-  claudeDir: string;
   sessionsDir: string;
   logFile: string;
 }
@@ -75,8 +50,6 @@ export interface AiState {
 export interface ProviderState {
   piSessionId?: string;
   piSessionFile?: string;
-  claudeSessionId?: string;
-  codexThreadId?: string;
 }
 
 export interface AiSessionSummary {

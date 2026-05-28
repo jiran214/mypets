@@ -55,9 +55,17 @@ pub(crate) fn take_ai_request_cancelled(request_id: &str) -> bool {
 pub(crate) fn active_ai_process_pid(request_id: &str) -> Result<Option<u32>, String> {
     Ok(active_ai_processes()
         .lock()
-        .map_err(|_| "Cannot access active Claude helpers".to_string())?
+        .map_err(|_| "Cannot access active AI processes".to_string())?
         .get(request_id)
         .copied())
+}
+
+pub fn terminate_all_ai_processes() {
+    if let Ok(mut processes) = active_ai_processes().lock() {
+        for (_, pid) in processes.drain() {
+            let _ = terminate_process_tree(pid);
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]

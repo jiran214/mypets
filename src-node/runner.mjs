@@ -4,9 +4,7 @@ import { dirname, normalize } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
-import { runClaude, findClaudeExecutable } from './run-claude.mjs';
-import { runPi, findPiExecutable } from './run-pi.mjs';
-import { runCodex, findCodexExecutable } from './run-codex.mjs';
+import { runPi } from './run-pi.mjs';
 import { existingFile } from './runner-utils.mjs';
 
 let activeRequestId = 'unknown';
@@ -659,29 +657,15 @@ export function emitSdkStatusPart(requestId, message) {
   }
 }
 
-function parseProviderId(input) {
-  const providerId = asOptionalString(input.providerId) ?? asOptionalString(input.settings?.providerId);
-  if (providerId === 'pi') return 'pi';
-  if (providerId === 'codex') return 'codex';
-  return 'claude';
-}
-
 async function main() {
   const input = await initialPayloadPromise;
-  if (!input.requestId || !input.settings || !input.providerId) {
-    throw new Error('Invalid payload: missing requestId, settings, or providerId');
+  if (!input.requestId || !input.settings) {
+    throw new Error('Invalid payload: missing requestId or settings');
   }
-  const providerId = parseProviderId(input);
   activeRequestId = input.requestId;
 
   try {
-    if (providerId === 'pi') {
-      await runPi(input);
-    } else if (providerId === 'codex') {
-      await runCodex(input);
-    } else {
-      await runClaude(input);
-    }
+    await runPi(input);
   } finally {
     closeInputBridge();
   }
