@@ -59,7 +59,6 @@ pub(crate) fn build_chat_payload(
         "allSkillNames": all_skill_names,
         "settings": {
             "providerId": settings.provider_id,
-            "petPersona": settings.pet_persona,
             "pi": {
                 "pathToPiExecutable": settings.pi.path_to_pi_executable,
                 "provider": settings.pi.provider,

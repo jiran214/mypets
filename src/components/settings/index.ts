@@ -1,5 +1,5 @@
 export { SettingDropdown } from './setting-dropdown';
-export { GeneralSettings, DEFAULT_PET_PERSONA } from './general-settings';
+export { GeneralSettings } from './general-settings';
 export { SkinSettings } from './skin-settings';
 export { AgentSettings } from './agent-settings';
 export { SkillSettings } from './skill-settings';

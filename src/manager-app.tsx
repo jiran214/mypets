@@ -38,7 +38,6 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { DEFAULT_PET_PERSONA } from '@/lib/ai-constants';
 import { ANIMATIONS, CELL_H, CELL_W } from '@/pet/animation-data';
 import {
   deleteAutoTask,
@@ -47,7 +46,7 @@ import {
   type AutoTask,
 } from '@/ai/auto-tasks';
 import { AutoTaskScheduler, prepareAutoTaskForSave, upsertAutoTask } from '@/ai/auto-task-scheduler';
-import { saveAiSettings } from '@/ai/ai-api';
+import { loadAgentsMd, saveAiSettings, saveAgentsMd } from '@/ai/ai-api';
 import type { ChatRuntime } from '@/ai/chat-runtime';
 import { ChatPanel } from '@/ai/chat-ui';
 import type { AiSessionSummary, AiSettings, AiState } from '@/ai/ai-types';
@@ -101,6 +100,7 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('general');
   const [settingsDraft, setSettingsDraft] = useState<AiSettings>(() => defaultAiSettings());
   const [settingsStatus, setSettingsStatus] = useState('');
+  const [personaDraft, setPersonaDraft] = useState('');
   const [autoTasks, setAutoTasks] = useState<AutoTask[]>([]);
   const [autoTaskStatus, setAutoTaskStatus] = useState('');
   const [loading, setLoading] = useState(true);
@@ -266,13 +266,15 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
 
   const readyWorkspaceRef = useRef(readyWorkspace);
   const settingsDraftRef = useRef(settingsDraft);
+  const personaDraftRef = useRef(personaDraft);
   const settingsInitializedRef = useRef(false);
   const autoSavingRef = useRef(false);
 
   useEffect(() => {
     readyWorkspaceRef.current = readyWorkspace;
     settingsDraftRef.current = settingsDraft;
-  }, [readyWorkspace, settingsDraft]);
+    personaDraftRef.current = personaDraft;
+  }, [readyWorkspace, settingsDraft, personaDraft]);
 
   useEffect(() => {
     autoTasksRef.current = autoTasks;
@@ -327,6 +329,10 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
       setSettingsStatus('');
       autoSavingRef.current = false;
     }
+
+    void loadAgentsMd(folder).then((content) => {
+      setPersonaDraft(content);
+    });
   }, [readyWorkspace, runtime]);
 
   useEffect(() => {
@@ -361,6 +367,28 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
       }
     };
   }, [settingsDraft, readyWorkspace, runtime]);
+
+  useEffect(() => {
+    if (!settingsInitializedRef.current || !readyWorkspace) return;
+    if (initializedFolderRef.current !== readyWorkspace.folder) return;
+
+    let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      const ws = readyWorkspaceRef.current;
+      const persona = personaDraftRef.current;
+      if (!ws) return;
+
+      void saveAgentsMd(ws.folder, persona).catch(() => {});
+    }, 600);
+
+    return () => {
+      if (saveTimer !== null) {
+        clearTimeout(saveTimer);
+      }
+    };
+  }, [personaDraft, readyWorkspace]);
 
   useEffect(() => {
     const name = settingsDraft.displayName.trim();
@@ -524,7 +552,7 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
               </div>
             )
           ) : (
-            <div className={cn('flex flex-col gap-2', sidebarCollapsed ? 'items-center pr-0' : 'pr-1')}>
+            <div className={cn('flex flex-col gap-2', sidebarCollapsed ? 'items-center' : '')}>
               {workspaces.map((workspace) => (
                 <WorkspaceListItem
                   key={workspace.folder}
@@ -554,12 +582,14 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
               settingsTab={settingsTab}
               settingsDraft={settingsDraft}
               settingsStatus={settingsStatus}
+              personaDraft={personaDraft}
               autoTasks={autoTasks}
               autoTaskStatus={autoTaskStatus}
               sessions={runtime.getSessions()}
               onBack={() => setMainView('chat')}
               onSettingsTabChange={setSettingsTab}
               onSettingsChange={changeSettingsDraft}
+              onPersonaChange={setPersonaDraft}
               onSaveAutoTask={(task) => {
                 void persistAutoTask(task).catch((error) => {
                   setAutoTaskStatus(error instanceof Error ? error.message : String(error));
@@ -756,11 +786,13 @@ interface SettingsSurfaceProps {
   settingsTab: SettingsTab;
   settingsDraft: AiSettings;
   settingsStatus: string;
+  personaDraft: string;
   autoTasks: AutoTask[];
   autoTaskStatus: string;
   sessions: AiSessionSummary[];
   onSettingsTabChange: (tab: SettingsTab) => void;
   onSettingsChange: (settings: AiSettings) => void;
+  onPersonaChange: (persona: string) => void;
   onSaveAutoTask: (task: AutoTask) => void;
   onDeleteAutoTask: (taskId: string) => void;
   onOpenAutoTaskConversation: (session: AiSessionSummary) => void;
@@ -776,11 +808,13 @@ function SettingsSurface({
   settingsTab,
   settingsDraft,
   settingsStatus,
+  personaDraft,
   autoTasks,
   autoTaskStatus,
   sessions,
   onSettingsTabChange,
   onSettingsChange,
+  onPersonaChange,
   onSaveAutoTask,
   onDeleteAutoTask,
   onOpenAutoTaskConversation,
@@ -836,7 +870,9 @@ function SettingsSurface({
                   readyWorkspace={readyWorkspace}
                   settingsDraft={settingsDraft}
                   settingsStatus={settingsStatus}
+                  personaDraft={personaDraft}
                   onSettingsChange={onSettingsChange}
+                  onPersonaChange={onPersonaChange}
                   onDeleteWorkspace={onDeleteWorkspace}
                   onOpenWorkspaceFolder={onOpenWorkspaceFolder}
                 />
@@ -937,7 +973,6 @@ function defaultAiSettings(): AiSettings {
     petGravityEnabled: true,
     petScale: 1,
     petResizeEnabled: false,
-    petPersona: DEFAULT_PET_PERSONA,
     displayName: '',
     pi: {
       pathToPiExecutable: '',
@@ -965,7 +1000,6 @@ function normalizeSettings(settings: AiSettings | null | undefined): AiSettings 
     petGravityEnabled: settings?.petGravityEnabled ?? defaults.petGravityEnabled,
     petScale: settings?.petScale ?? defaults.petScale,
     petResizeEnabled: settings?.petResizeEnabled ?? defaults.petResizeEnabled,
-    petPersona: settings?.petPersona ?? defaults.petPersona,
     pi: {
       ...defaults.pi,
       ...settings?.pi,

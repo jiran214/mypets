@@ -16,9 +16,9 @@ use super::ai_process::{
 use super::ai_runner::{spawn_node_runner, RunnerConfig};
 use super::ai_skills::{collect_all_skills, default_provider_id, SkillInfo};
 use super::ai_storage::{
-    append_ai_log, load_auto_tasks, load_settings, now_ms, path_to_string, pi_auth_path,
-    public_paths, read_pi_auth_file, resolve_storage, safe_pi_auth_key, save_auto_tasks_file,
-    save_settings, write_session_meta, LogLevel,
+    append_ai_log, load_agents_md, load_auto_tasks, load_settings, now_ms, path_to_string,
+    pi_auth_path, public_paths, read_pi_auth_file, resolve_storage, safe_pi_auth_key,
+    save_agents_md, save_auto_tasks_file, save_settings, write_session_meta, LogLevel,
 };
 
 #[tauri::command]
@@ -64,6 +64,18 @@ pub fn save_ai_settings(workspace_folder: String, settings: AiSettings) -> Resul
         settings,
         paths: public_paths(&paths),
     })
+}
+
+#[tauri::command]
+pub fn load_agents_md_content(workspace_folder: String) -> Result<String, String> {
+    let paths = resolve_storage(&workspace_folder)?;
+    Ok(load_agents_md(&paths))
+}
+
+#[tauri::command]
+pub fn save_agents_md_content(workspace_folder: String, content: String) -> Result<(), String> {
+    let paths = resolve_storage(&workspace_folder)?;
+    save_agents_md(&paths, &content)
 }
 
 #[tauri::command]

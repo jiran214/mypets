@@ -183,20 +183,12 @@ function renderAttachmentContext(attachment) {
 
 export function buildPrompt(input, attachments) {
   const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
-  const persona = asOptionalString(input.settings?.petPersona);
-  const personaContext = persona
-    ? `你正在扮演当前桌宠的 AI 分身。请始终保持以下人设，除非用户明确要求切换角色。\n\n桌宠人设:\n${persona}`
-    : '';
 
-  const userPrompt = attachments.length === 0
-    ? prompt
-    : (() => {
-        const context = attachments.map(renderAttachmentContext).join('\n\n');
-        const userText = prompt || '请查看这些拖入的上下文。';
-        return `${userText}\n\n用户拖入了以下内容，作为本轮聊天上下文。小文本文件内容和拖入文本已直接附在下面；其它文件请按路径读取。\n\n${context}`;
-      })();
+  if (attachments.length === 0) return prompt;
 
-  return [personaContext, userPrompt].filter(Boolean).join('\n\n---\n\n');
+  const context = attachments.map(renderAttachmentContext).join('\n\n');
+  const userText = prompt || '请查看这些拖入的上下文。';
+  return `${userText}\n\n用户拖入了以下内容，作为本轮聊天上下文。小文本文件内容和拖入文本已直接附在下面；其它文件请按路径读取。\n\n${context}`;
 }
 
 export function parseCustomEnv(value) {

@@ -30,7 +30,6 @@ export interface AiSettings {
   petGravityEnabled: boolean;
   petScale: number;
   petResizeEnabled: boolean;
-  petPersona: string;
   displayName: string;
   pi: PiSettings;
 }
