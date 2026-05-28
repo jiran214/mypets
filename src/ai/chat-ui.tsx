@@ -19,10 +19,12 @@ import {
   ListTodo,
   MessageCircle,
   Paperclip,
+  Plug,
   Plus,
   Search,
   SendHorizontal,
   Sparkles,
+  Terminal,
   Timer,
   Wrench,
   X,
@@ -46,17 +48,13 @@ import {
   MessageContent,
   MessageResponse,
 } from '@/components/ai-elements/message';
-import {
-  Reasoning,
-  ReasoningContent,
-  ReasoningTrigger,
-} from '@/components/ai-elements/reasoning';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import {
-  Task,
-  TaskContent,
-  TaskTrigger,
-} from '@/components/ai-elements/task';
+  ChainOfThought,
+  ChainOfThoughtHeader,
+  ChainOfThoughtContent,
+} from '@/components/ai-elements/chain-of-thought';
+import { CodeBlock } from '@/components/ai-elements/code-block';
 import {
   PromptInput,
   PromptInputBody,
@@ -74,6 +72,11 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuRadioGroup,
@@ -90,6 +93,7 @@ import type {
   ChatAttachment,
   ChatMessage,
   ChatMessagePart,
+  ToolTrace,
   ToolQuestionAnswerPayload,
   ToolQuestionItem,
   ToolQuestionOption,
@@ -110,8 +114,8 @@ import {
 } from './bubble-layout';
 import { openFileWithDefaultApp, saveAiSettings } from './ai-api';
 import {
-  buildTimelineGroups,
-  type TimelineGroup,
+  buildChainOfThought,
+  type ChainOfThoughtModel,
   type TimelineItem,
 } from './agent-timeline';
 const roots = new WeakMap<HTMLElement, Root>();
@@ -790,9 +794,10 @@ interface ChatPartViewProps {
 
 function AssistantReasoningWait(): ReactNode {
   return (
-    <Shimmer as="span" className="text-sm text-muted-foreground">
-      正在思考...
-    </Shimmer>
+    <ChainOfThoughtView
+      chain={{ id: 'pending-chain-of-thought', items: [], summaryParts: [] }}
+      streaming
+    />
   );
 }
 
@@ -861,96 +866,59 @@ function AssistantTimelineParts({
   parts: ChatMessagePart[];
   streaming: boolean;
 }): ReactNode {
-  const blocks = buildTimelineGroups(parts);
+  const chain = buildChainOfThought(parts);
 
-  return blocks.map((block) => {
-    if (block.type === 'text') {
-      return (
-        <div className="rounded-lg text-sm" key={block.part.id}>
-          <MessageResponse isAnimating={streaming}>{block.part.text}</MessageResponse>
-        </div>
-      );
-    }
-
-    if (block.type === 'thinking') {
-      return (
-        <DeepThinkingView
-          key={block.part.id}
-          part={block.part}
-          streaming={streaming}
-        />
-      );
-    }
-
-    return (
-      <TimelineGroupView
-        key={block.group.id}
-        group={block.group}
-        streaming={streaming}
-      />
-    );
-  });
-}
-
-function DeepThinkingView({ part, streaming }: { part: ChatMessagePart; streaming: boolean }): ReactNode {
   return (
-    <Reasoning
-      className="mb-0 rounded-md bg-muted/20 px-1 py-1"
-      defaultOpen={streaming}
-      isStreaming={false}
-    >
-      <ReasoningTrigger
-        className="text-sm"
-        getThinkingMessage={() => <p className="font-medium">已深度思考</p>}
-      />
-      <ReasoningContent className="mt-3 text-xs leading-relaxed">
-        {part.text}
-      </ReasoningContent>
-    </Reasoning>
+    <>
+      {(chain.items.length > 0 || streaming) && (
+        <ChainOfThoughtView chain={chain} streaming={streaming} />
+      )}
+      {chain.summaryParts.map((part) => (
+        <div className="rounded-lg text-sm" key={part.id}>
+          <MessageResponse isAnimating={streaming}>{part.text}</MessageResponse>
+        </div>
+      ))}
+    </>
   );
 }
 
-function TimelineGroupView({
-  group,
+function ChainOfThoughtView({
+  chain,
   streaming,
 }: {
-  group: TimelineGroup;
+  chain: ChainOfThoughtModel;
   streaming: boolean;
 }): ReactNode {
-  const partCount = group.items.reduce((count, item) => count + item.parts.length, 0);
+  const stepCount = chain.items.reduce((count, item) => count + item.parts.length, 0);
 
   return (
-    <Task
-      className="rounded-md bg-muted/20 px-1 py-1"
-      defaultOpen={streaming}
-    >
-      <TaskTrigger title="调用工具">
-        <div className="flex w-full cursor-pointer items-center justify-between gap-3 text-muted-foreground transition-colors hover:text-foreground">
+    <ChainOfThought className="mb-2 px-0" defaultOpen={true}>
+      <ChainOfThoughtHeader>
+        <div className="flex flex-1 items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
-            <Wrench className="size-4 shrink-0" />
-            <span className="truncate text-sm font-medium">调用工具</span>
-            <Badge variant="secondary" className="shrink-0 rounded-full text-[11px]">
-              {partCount} 条
-            </Badge>
-            {streaming && (
-              <Badge variant="outline" className="shrink-0 rounded-full text-[11px]">
-                运行中
-              </Badge>
+            {streaming ? (
+              <Shimmer duration={1} className="font-medium">思考中</Shimmer>
+            ) : (
+              <span className="font-medium">已思考</span>
             )}
           </div>
-          <ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+          {stepCount > 0 && (
+            <Badge variant="secondary" className="shrink-0 rounded-full text-[11px]">
+              {stepCount} 条
+            </Badge>
+          )}
         </div>
-      </TaskTrigger>
-      <TaskContent className="text-xs">
-        {group.items.map((item) => (
-          <TimelineItemView
-            key={item.id}
-            item={item}
-            streaming={streaming}
-          />
-        ))}
-      </TaskContent>
-    </Task>
+      </ChainOfThoughtHeader>
+      {chain.items.length > 0 && (
+        <ChainOfThoughtContent>
+          <div className="space-y-2 pl-0.5">
+            {chain.items.map((item) => (
+              <TimelineItemView key={item.id} item={item} streaming={streaming} />
+            ))}
+          </div>
+        </ChainOfThoughtContent>
+      )}
+    </ChainOfThought>
   );
 }
 
@@ -962,64 +930,180 @@ function TimelineItemView({
   streaming: boolean;
 }): ReactNode {
   return (
-    <Task
-      className="rounded-md bg-background/70 px-2.5 py-2"
-      defaultOpen={false}
-    >
-      <TaskTrigger title={item.title}>
-        <div className="flex w-full cursor-pointer items-center justify-between gap-2 text-muted-foreground transition-colors hover:text-foreground">
+    <Collapsible className="group" defaultOpen={false}>
+      <CollapsibleTrigger asChild>
+        <div
+          className="flex w-full cursor-pointer items-center justify-between gap-2 px-2.5 py-2 text-muted-foreground transition-colors hover:text-foreground"
+          role="button"
+          tabIndex={0}
+          title={item.title}
+        >
           <div className="flex min-w-0 items-center gap-2">
-            {timelineKindIcon(item.kind)}
-            <span className="truncate text-xs font-medium">{item.title}</span>
+            {timelineItemIcon(item.kind)}
+            <TimelineItemTitle item={item} />
             {item.parts.length > 1 && (
               <Badge variant="secondary" className="shrink-0 rounded-full text-[10px]">
                 {item.parts.length} 次
               </Badge>
             )}
+            {streaming && item.traces.some((trace) => trace.partial) && (
+              <Badge variant="outline" className="shrink-0 rounded-full text-[10px]">
+                运行中
+              </Badge>
+            )}
           </div>
           <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
         </div>
-      </TaskTrigger>
-      <TaskContent className="text-xs">
-        {item.parts.map((part, index) => (
-          <TimelinePartDetail
-            key={part.id}
-            index={item.parts.length > 1 ? index + 1 : undefined}
-            part={part}
-            streaming={streaming}
-          />
-        ))}
-      </TaskContent>
-    </Task>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1">
+        <div className="space-y-2 px-2.5 pb-2.5 text-xs">
+          {item.traces.map((trace, index) => (
+            <TimelineTraceDetail
+              key={`${trace.id}-${trace.phase}-${index}`}
+              index={item.traces.length > 1 ? index + 1 : undefined}
+              part={item.parts[index] ?? item.parts[0]}
+              trace={trace}
+            />
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
-function TimelinePartDetail({
+function TimelineItemTitle({ item }: { item: TimelineItem }): ReactNode {
+  const description = item.description || item.path;
+
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
+      <span className="shrink-0">{item.label}</span>
+      {item.kind === 'read' && item.path ? (
+        <PathInlineButton path={item.path} title={item.path} />
+      ) : description ? (
+        <span className="min-w-0 truncate text-foreground/80">{description}</span>
+      ) : null}
+    </span>
+  );
+}
+
+function TimelineTraceDetail({
+  trace,
   part,
   index,
-  streaming,
 }: {
+  trace: ToolTrace;
   part: ChatMessagePart;
   index?: number;
-  streaming: boolean;
 }): ReactNode {
-  if (part.kind === 'path') {
+  const input = trace.input ?? (trace.phase === 'input' ? fallbackTraceText(part) : undefined);
+  const output = trace.output ?? (trace.phase === 'output' || trace.phase === 'update' || trace.phase === 'status'
+    ? fallbackTraceText(part)
+    : undefined);
+
+  return (
+    <div className="space-y-2 py-1 leading-relaxed">
+      {index && <div className="text-[11px] text-muted-foreground">#{index}</div>}
+      {trace.path && <PathOpenButton path={trace.path} title={trace.path} />}
+      {trace.description && trace.kind !== 'read' && (
+        <div className="break-words text-muted-foreground">{trace.description}</div>
+      )}
+      {input !== undefined && (
+        <TraceValueBlock
+          label={trace.kind === 'bash' ? '命令' : '输入'}
+          language={trace.kind === 'bash' ? 'bash' : 'json'}
+          value={input}
+        />
+      )}
+      {(output !== undefined || trace.phase === 'output') && (
+        <TraceValueBlock
+          emptyText="暂无输出"
+          label={trace.error ? '错误' : trace.label === '思考' ? '内容' : trace.phase === 'update' ? '更新' : '输出'}
+          language="markdown"
+          value={trace.error ?? output}
+          error={Boolean(trace.error)}
+        />
+      )}
+    </div>
+  );
+}
+
+function TraceValueBlock({
+  emptyText,
+  error,
+  label,
+  language,
+  value,
+}: {
+  emptyText?: string;
+  error?: boolean;
+  label: string;
+  language: 'bash' | 'json' | 'markdown';
+  value: unknown;
+}): ReactNode {
+  const text = valueToCode(value);
+  if (!text.trim()) {
+    if (!emptyText) return null;
     return (
-      <div className="space-y-1.5">
-        {index && <div className="text-[11px] text-muted-foreground">#{index}</div>}
-        <PathOpenButton path={part.text} title={part.title} />
+      <div className="space-y-1">
+        <div className="font-medium text-[11px] text-muted-foreground">{label}</div>
+        <div className="px-2.5 py-2 text-muted-foreground">{emptyText}</div>
       </div>
     );
   }
 
-  if (!part.text.trim()) return null;
-
   return (
-    <div className="space-y-1.5 rounded-md bg-muted/30 px-2.5 py-2 leading-relaxed">
-      {index && <div className="text-[11px] text-muted-foreground">#{index}</div>}
-      <MessageResponse isAnimating={streaming}>{part.text}</MessageResponse>
+    <div className="space-y-1 overflow-hidden">
+      <div className="font-medium text-[11px] text-muted-foreground">{label}</div>
+      <div className={cn('overflow-x-auto text-foreground', error && 'text-destructive')}>
+        <CodeBlock code={text} language={language} />
+      </div>
     </div>
   );
+}
+
+function PathInlineButton({ path, title }: { path: string; title?: string }): ReactNode {
+  const trimmed = path.trim();
+  if (!trimmed) return null;
+
+  return (
+    <button
+      type="button"
+      className="min-w-0 truncate rounded-sm px-0.5 font-mono text-[11px] text-foreground/80 underline-offset-2 transition-colors hover:text-foreground hover:underline"
+      title={trimmed}
+      onClick={(event) => {
+        event.stopPropagation();
+        void openFileWithDefaultApp(trimmed).catch((error) => {
+          console.warn('Failed to open path:', error);
+        });
+      }}
+    >
+      {title || trimmed}
+    </button>
+  );
+}
+
+function timelineItemIcon(kind: TimelineItem['kind']): ReactNode {
+  if (kind === 'thinking') return <Brain className="size-3.5 shrink-0" />;
+  if (kind === 'bash') return <Terminal className="size-3.5 shrink-0" />;
+  if (kind === 'read') return <FileText className="size-3.5 shrink-0" />;
+  if (kind === 'mcp') return <Plug className="size-3.5 shrink-0" />;
+  if (kind === 'status') return <Clock className="size-3.5 shrink-0" />;
+  if (kind === 'plan') return <Sparkles className="size-3.5 shrink-0" />;
+  return <Wrench className="size-3.5 shrink-0" />;
+}
+
+function fallbackTraceText(part: ChatMessagePart): string | undefined {
+  return part.text.trim() ? part.text : undefined;
+}
+
+function valueToCode(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function PathOpenButton({ path, title }: { path: string; title?: string }): ReactNode {
@@ -1029,7 +1113,7 @@ function PathOpenButton({ path, title }: { path: string; title?: string }): Reac
   return (
     <button
       type="button"
-      className="flex w-full min-w-0 items-center gap-2 rounded-md bg-muted/40 px-2.5 py-2 text-left font-mono text-xs text-foreground transition-colors hover:bg-muted"
+      className="flex w-full min-w-0 items-center gap-2 rounded-md bg-background/70 px-2.5 py-2 text-left font-mono text-xs text-foreground transition-colors hover:bg-background"
       title={trimmed}
       onClick={() => {
         void openFileWithDefaultApp(trimmed).catch((error) => {
@@ -1041,14 +1125,6 @@ function PathOpenButton({ path, title }: { path: string; title?: string }): Reac
       <span className="min-w-0 flex-1 truncate">{title || trimmed}</span>
     </button>
   );
-}
-
-function timelineKindIcon(kind: ChatMessagePart['kind']): ReactNode {
-  if (kind === 'thinking') return <Brain className="size-3.5 shrink-0" />;
-  if (kind === 'path') return <FolderOpen className="size-3.5 shrink-0" />;
-  if (kind === 'status') return <Clock className="size-3.5 shrink-0" />;
-  if (kind === 'plan') return <Sparkles className="size-3.5 shrink-0" />;
-  return <Wrench className="size-3.5 shrink-0" />;
 }
 
 function QuestionOverlay({

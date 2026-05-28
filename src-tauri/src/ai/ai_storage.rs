@@ -119,11 +119,28 @@ pub(crate) fn resolve_storage(workspace_folder: &str) -> Result<StoragePaths, St
     Ok(paths)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum LogLevel {
+    Info,
+    Warn,
+    Error,
+}
+
+impl std::fmt::Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LogLevel::Info => write!(f, "INFO"),
+            LogLevel::Warn => write!(f, "WARN"),
+            LogLevel::Error => write!(f, "ERROR"),
+        }
+    }
+}
+
 static LOG_WRITER: Mutex<Option<(PathBuf, BufWriter<std::fs::File>)>> = Mutex::new(None);
 
-pub(crate) fn append_ai_log(paths: &StoragePaths, message: &str) {
+pub(crate) fn append_ai_log(paths: &StoragePaths, level: LogLevel, module: &str, message: &str) {
     let timestamp = now_ms();
-    let line = format!("[{timestamp}] {message}\n");
+    let line = format!("[{timestamp}] [{level}] [{module}] {message}\n");
 
     if let Ok(mut guard) = LOG_WRITER.lock() {
         let needs_reopen = match &*guard {

@@ -50,7 +50,7 @@ import { AutoTaskScheduler, prepareAutoTaskForSave, upsertAutoTask } from '@/ai/
 import { saveAiSettings } from '@/ai/ai-api';
 import type { ChatRuntime } from '@/ai/chat-runtime';
 import { ChatPanel } from '@/ai/chat-ui';
-import type { AiSessionSummary, AiSettings } from '@/ai/ai-types';
+import type { AiSessionSummary, AiSettings, AiState } from '@/ai/ai-types';
 import {
   deletePetWorkspace,
   loadPet,
@@ -104,6 +104,7 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
   const [autoTasks, setAutoTasks] = useState<AutoTask[]>([]);
   const [autoTaskStatus, setAutoTaskStatus] = useState('');
   const [loading, setLoading] = useState(true);
+  const [, setRuntimeTick] = useState(0);
   const currentFolderRef = useRef(currentFolder);
   const autoTasksRef = useRef<AutoTask[]>([]);
   const aiState = runtime.getAiState();
@@ -376,6 +377,15 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
     });
     void setPetWindowTitle(folder, name);
   }, [settingsDraft.displayName, readyWorkspace?.folder, readyWorkspace?.meta.displayName]);
+
+  const prevAiStateRef = useRef<AiState | null>(null);
+  useEffect(() => runtime.subscribe(() => {
+    const next = runtime.getAiState();
+    if (next !== prevAiStateRef.current) {
+      prevAiStateRef.current = next;
+      setRuntimeTick((version) => version + 1);
+    }
+  }), [runtime]);
 
   useEffect(() => {
     if (autoSavingRef.current) return;

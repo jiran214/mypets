@@ -12,6 +12,9 @@ import {
   stringifyBrief,
   emit,
   emitPart,
+  partKindForToolTrace,
+  toolTraceFromToolUse,
+  toolTraceTitle,
   emitToolQuestion,
   waitForToolResponse,
   normalizeAnswerArray,
@@ -210,28 +213,86 @@ function summarizeFileChanges(changes) {
 
 function codexItemPart(item) {
   if (!item || typeof item !== 'object') return null;
+  const id = asOptionalString(item.id) ?? asOptionalString(item.itemId) ?? randomUUID();
 
   switch (item.type) {
     case 'plan':
       return { kind: 'plan', title: '计划', text: item.text || '正在生成计划' };
-    case 'commandExecution':
-      return { kind: 'tool', title: '命令执行', text: item.command || '执行命令' };
-    case 'fileChange':
-      return { kind: 'tool', title: '文件修改', text: summarizeFileChanges(item.changes) };
-    case 'mcpToolCall':
-      return { kind: 'mcp', title: `MCP ${item.server} / ${item.tool}`, text: stringifyBrief(item.arguments) };
+    case 'commandExecution': {
+      const command = asOptionalString(item.command) ?? '执行命令';
+      const input = {
+        command,
+        ...(asOptionalString(item.cwd) ? { cwd: asOptionalString(item.cwd) } : {}),
+      };
+      const trace = toolTraceFromToolUse('CommandExecution', 'input', input, {
+        id,
+        kind: 'bash',
+        description: asOptionalString(item.description) ?? asOptionalString(item.reason) ?? command,
+        partial: true,
+      });
+      return { kind: partKindForToolTrace(trace), title: toolTraceTitle(trace), text: command, toolTrace: trace };
+    }
+    case 'fileChange': {
+      const text = summarizeFileChanges(item.changes);
+      const trace = toolTraceFromToolUse('FileChange', 'input', item.changes ?? text, {
+        id,
+        kind: 'tool',
+        name: 'FileChange',
+        label: 'Tool',
+        description: '文件修改',
+        partial: true,
+      });
+      return { kind: partKindForToolTrace(trace), title: toolTraceTitle(trace), text, toolTrace: trace };
+    }
+    case 'mcpToolCall': {
+      const description = [asOptionalString(item.server), asOptionalString(item.tool)].filter(Boolean).join(' / ');
+      const trace = toolTraceFromToolUse(`mcp__${item.server || 'server'}__${item.tool || 'tool'}`, 'input', item.arguments, {
+        id,
+        kind: 'mcp',
+        name: description || 'MCP',
+        description,
+        partial: true,
+      });
+      return { kind: partKindForToolTrace(trace), title: toolTraceTitle(trace), text: stringifyBrief(item.arguments), toolTrace: trace };
+    }
     case 'dynamicToolCall': {
       const namespace = asOptionalString(item.namespace);
+      const toolName = `${namespace ? `${namespace} / ` : ''}${item.tool || 'dynamicToolCall'}`;
+      const trace = toolTraceFromToolUse(toolName, 'input', item.arguments, {
+        id,
+        name: toolName,
+        description: toolName,
+        partial: true,
+      });
       return {
-        kind: 'tool',
-        title: `工具 ${namespace ? `${namespace} / ` : ''}${item.tool || 'dynamicToolCall'}`,
+        kind: partKindForToolTrace(trace),
+        title: toolTraceTitle(trace),
         text: stringifyBrief(item.arguments),
+        toolTrace: trace,
       };
     }
-    case 'webSearch':
-      return { kind: 'tool', title: 'Web 搜索', text: item.query || '搜索' };
-    case 'collabAgentToolCall':
-      return { kind: 'tool', title: `多代理 ${item.tool || ''}`.trim(), text: item.prompt || '协作代理调用' };
+    case 'webSearch': {
+      const query = asOptionalString(item.query) ?? '搜索';
+      const trace = toolTraceFromToolUse('WebSearch', 'input', { query }, {
+        id,
+        name: 'WebSearch',
+        label: 'Tool',
+        description: 'Web 搜索',
+        partial: true,
+      });
+      return { kind: partKindForToolTrace(trace), title: toolTraceTitle(trace), text: query, toolTrace: trace };
+    }
+    case 'collabAgentToolCall': {
+      const description = `多代理 ${item.tool || ''}`.trim();
+      const trace = toolTraceFromToolUse(description || 'CollabAgent', 'input', item.prompt, {
+        id,
+        name: description || 'CollabAgent',
+        label: 'Tool',
+        description,
+        partial: true,
+      });
+      return { kind: partKindForToolTrace(trace), title: toolTraceTitle(trace), text: item.prompt || '协作代理调用', toolTrace: trace };
+    }
     case 'enteredReviewMode':
       return { kind: 'status', title: 'Review', text: item.review || '进入 review 模式' };
     case 'exitedReviewMode':
@@ -362,7 +423,7 @@ export async function runCodex(input) {
         case 'item/started': {
           const part = codexItemPart(message.params?.item);
           if (part) {
-            emitPart(requestId, part.kind, part.text, part.title);
+            emitPart(requestId, part.kind, part.text, part.title, part.toolTrace);
           }
           return;
         }

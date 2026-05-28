@@ -18,7 +18,7 @@ use super::ai_skills::{collect_all_skills, default_provider_id, SkillInfo};
 use super::ai_storage::{
     append_ai_log, load_auto_tasks, load_settings, now_ms, path_to_string, pi_auth_path,
     public_paths, read_pi_auth_file, resolve_storage, safe_pi_auth_key, save_auto_tasks_file,
-    save_settings, write_session_meta,
+    save_settings, write_session_meta, LogLevel,
 };
 
 #[tauri::command]
@@ -228,7 +228,7 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
     let helper = match helper_path(&app) {
         Ok(path) => path,
         Err(err) => {
-            append_ai_log(&paths, &format!("Cannot resolve Claude helper: {err}"));
+            append_ai_log(&paths, LogLevel::Error, "commands", &format!("Cannot resolve Claude helper: {err}"));
             return Err(err);
         }
     };

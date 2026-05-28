@@ -48,3 +48,4 @@ Desktop.ini
 src-tauri/WixTools/
 src-tauri/Bundled/
 .claude/
+.claude/worktrees/

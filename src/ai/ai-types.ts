@@ -100,11 +100,29 @@ export interface ChatMessage {
 
 export type ChatPartKind = 'text' | 'thinking' | 'plan' | 'tool' | 'mcp' | 'skill' | 'path' | 'attachment' | 'status' | 'question';
 
+export type ToolTracePhase = 'input' | 'output' | 'update' | 'status';
+export type ToolTraceKind = 'bash' | 'read' | 'mcp' | 'tool' | 'skill' | 'plan' | 'status';
+
+export interface ToolTrace {
+  id: string;
+  phase: ToolTracePhase;
+  kind: ToolTraceKind;
+  name: string;
+  label: string;
+  description?: string;
+  path?: string;
+  input?: unknown;
+  output?: unknown;
+  error?: string;
+  partial?: boolean;
+}
+
 export interface ChatMessagePart {
   id: string;
   kind: ChatPartKind;
   text: string;
   title?: string;
+  toolTrace?: ToolTrace;
   questionData?: ToolQuestionPartData;
 }
 

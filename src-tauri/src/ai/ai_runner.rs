@@ -4,6 +4,7 @@ use std::{
     thread,
 };
 
+use encoding_rs::GBK;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
@@ -11,7 +12,7 @@ use super::ai_process::{
     register_ai_process, remove_ai_process, remove_tool_input_writer, take_ai_request_cancelled,
     terminate_process_tree, tool_input_writers,
 };
-use super::ai_storage::{append_ai_log, StoragePaths};
+use super::ai_storage::{append_ai_log, LogLevel, StoragePaths};
 
 const STDERR_BUFFER_LIMIT: usize = 64 * 1024; // 64KB
 
@@ -40,6 +41,8 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
 
     append_ai_log(
         &paths,
+        LogLevel::Info,
+        "runner",
         &format!("Starting {} request {}", provider_id, request_id),
     );
 
@@ -55,7 +58,7 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
         Ok(child) => child,
         Err(err) => {
             let message = format!("Cannot start Node Claude helper: {err}");
-            append_ai_log(&paths, &message);
+            append_ai_log(&paths, LogLevel::Error, "runner", &message);
             return Err(message);
         }
     };
@@ -72,13 +75,13 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
             .map_err(|_| "Cannot lock Claude helper input".to_string())?;
         if let Err(err) = writeln!(writer, "{}", payload) {
             let message = format!("Cannot write Claude helper input: {err}");
-            append_ai_log(&paths, &message);
+            append_ai_log(&paths, LogLevel::Error, "runner", &message);
             let _ = terminate_process_tree(child_pid);
             return Err(message);
         }
         if let Err(err) = writer.flush() {
             let message = format!("Cannot flush Claude helper input: {err}");
-            append_ai_log(&paths, &message);
+            append_ai_log(&paths, LogLevel::Error, "runner", &message);
             let _ = terminate_process_tree(child_pid);
             return Err(message);
         }
@@ -108,9 +111,14 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
     let stderr_log_paths = paths.clone();
 
     let stderr_handle = thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+        use std::io::Read;
+        let mut stderr_bytes = Vec::new();
+        let mut reader = std::io::BufReader::new(stderr);
+        let _ = reader.read_to_end(&mut stderr_bytes);
+        let (decoded, _, _) = GBK.decode(&stderr_bytes);
+        for line in decoded.lines() {
             if let Ok(mut buffer) = stderr_for_thread.lock() {
-                buffer.push_str(&line);
+                buffer.push_str(line);
                 buffer.push('\n');
                 if buffer.len() > STDERR_BUFFER_LIMIT {
                     let truncate_at = buffer.len() - STDERR_BUFFER_LIMIT / 2;
@@ -121,7 +129,7 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
                     }
                 }
             }
-            append_ai_log(&stderr_log_paths, &format!("stderr: {line}"));
+            append_ai_log(&stderr_log_paths, LogLevel::Warn, "runner", &format!("stderr: {line}"));
         }
         let _ = app_for_stderr.emit(
             "ai-chat-debug",
@@ -132,7 +140,7 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
     thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             let Ok(event) = serde_json::from_str::<Value>(&line) else {
-                append_ai_log(&paths_for_log, &format!("non-json stdout: {line}"));
+                append_ai_log(&paths_for_log, LogLevel::Warn, "runner", &format!("non-json stdout: {line}"));
                 continue;
             };
 
@@ -156,9 +164,10 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
                     .get("error")
                     .and_then(Value::as_str)
                     .unwrap_or("Claude helper emitted an error");
-                append_ai_log(&paths_for_log, &format!("event error: {error}"));
+                append_ai_log(&paths_for_log, LogLevel::Error, "runner", &format!("event error: {error}"));
             }
 
+            append_ai_log(&paths_for_log, LogLevel::Info, "runner", &format!("event: {}", event));
             let _ = app_for_stdout.emit("ai-chat-event", event);
         }
 
@@ -198,14 +207,14 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
                 } else {
                     stderr_text
                 };
-                append_ai_log(&paths_for_log, &format!("process error: {error}"));
+                append_ai_log(&paths_for_log, LogLevel::Error, "runner", &format!("process error: {error}"));
                 let _ = app_for_stdout.emit(
                     "ai-chat-event",
                     json!({ "type": "error", "requestId": request_id_for_stdout, "error": error }),
                 );
             }
             Err(err) => {
-                append_ai_log(&paths_for_log, &format!("wait error: {err}"));
+                append_ai_log(&paths_for_log, LogLevel::Error, "runner", &format!("wait error: {err}"));
                 let _ = app_for_stdout.emit(
                     "ai-chat-event",
                     json!({ "type": "error", "requestId": request_id_for_stdout, "error": err.to_string() }),
@@ -215,7 +224,7 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
         remove_tool_input_writer(&request_id_for_stdout);
 
         if let Err(e) = stderr_handle.join() {
-            append_ai_log(&paths_for_log, &format!("stderr thread panicked: {e:?}"));
+            append_ai_log(&paths_for_log, LogLevel::Error, "runner", &format!("stderr thread panicked: {e:?}"));
         }
     });
 

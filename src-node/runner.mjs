@@ -219,13 +219,43 @@ export function parseCustomEnv(value) {
   return env;
 }
 
-export function emitPart(requestId, kind, text, title) {
-  if (!text) return;
+export function emitPart(requestId, kind, text, title, toolTrace) {
+  if (!text && !toolTrace) return;
   emit({
     type: 'part',
     requestId,
-    part: { kind, text, ...(title ? { title } : {}) },
+    part: {
+      kind,
+      text: text || '',
+      ...(title ? { title } : {}),
+      ...(toolTrace ? { toolTrace } : {}),
+    },
   });
+}
+
+const toolTraceById = new Map();
+
+function rememberToolTrace(trace) {
+  if (!trace?.id) return;
+  toolTraceById.set(trace.id, trace);
+}
+
+function textFromToolResultBlock(block) {
+  const content = block?.content;
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const text = content
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (typeof item?.text === 'string') return item.text;
+        if (item?.type === 'image') return '[image]';
+        return stringifyBrief(item);
+      })
+      .filter(Boolean)
+      .join('\n');
+    if (text) return text;
+  }
+  return '';
 }
 
 export function textDeltaFromStreamEvent(event) {
@@ -255,18 +285,107 @@ export function stringifyBrief(value) {
 }
 
 function classifyTool(name) {
-  if (name.startsWith('mcp__')) return 'mcp';
-  if (name.toLowerCase().includes('skill')) return 'skill';
+  const traceKind = traceKindFromToolName(name);
+  return partKindForToolTraceKind(traceKind);
+}
+
+export function partKindForToolTrace(trace) {
+  return partKindForToolTraceKind(trace?.kind);
+}
+
+function partKindForToolTraceKind(kind) {
+  if (kind === 'mcp') return 'mcp';
+  if (kind === 'skill') return 'skill';
+  if (kind === 'plan') return 'plan';
+  if (kind === 'status') return 'status';
   return 'tool';
 }
 
-function toolTitle(name) {
-  if (name.startsWith('mcp__')) {
-    const parts = name.split('__').filter(Boolean);
-    return parts.length >= 3 ? `MCP ${parts[1]} / ${parts.slice(2).join('/')}` : `MCP ${name}`;
+function traceKindFromToolName(name) {
+  const normalized = String(name || '').toLowerCase();
+  if (normalized === 'bash' || normalized === 'commandexecution' || normalized === 'command_execution') return 'bash';
+  if (normalized === 'read') return 'read';
+  if (String(name || '').startsWith('mcp__') || normalized.includes('mcp')) return 'mcp';
+  if (normalized.includes('skill')) return 'skill';
+  return 'tool';
+}
+
+function traceLabel(kind) {
+  if (kind === 'bash') return 'Bash';
+  if (kind === 'read') return 'Read';
+  if (kind === 'mcp') return 'MCP';
+  if (kind === 'skill') return 'Skill';
+  if (kind === 'plan') return '计划';
+  if (kind === 'status') return '状态';
+  return 'Tool';
+}
+
+function traceName(toolName, kind) {
+  if (kind === 'bash') return 'Bash';
+  if (kind === 'read') return 'Read';
+  if (kind === 'mcp') return mcpDescription(toolName) || String(toolName || 'MCP');
+  return String(toolName || kind || 'tool');
+}
+
+function mcpDescription(name) {
+  if (!String(name || '').startsWith('mcp__')) return '';
+  const parts = String(name).split('__').filter(Boolean);
+  return parts.length >= 3 ? `${parts[1]} / ${parts.slice(2).join('/')}` : String(name);
+}
+
+function stringField(value, keys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+  for (const key of keys) {
+    const current = value[key];
+    if (typeof current === 'string' && current.trim()) return current.trim();
   }
-  if (name.toLowerCase().includes('skill')) return `Skill ${name}`;
-  return `工具 ${name}`;
+  return '';
+}
+
+function tracePath(kind, payload, options) {
+  if (options.path) return options.path;
+  if (kind === 'read') {
+    return stringField(payload, ['path', 'filePath', 'file_path', 'filename']);
+  }
+  return stringField(payload, ['path', 'filePath', 'file_path']);
+}
+
+function traceDescription(toolName, kind, payload, options) {
+  if (options.description) return options.description;
+  if (kind === 'bash') return stringField(payload, ['description', 'command']) || (typeof payload === 'string' ? payload : '');
+  if (kind === 'read') return tracePath(kind, payload, options);
+  if (kind === 'mcp') return mcpDescription(toolName) || String(toolName || '');
+  return String(toolName || '');
+}
+
+export function toolTraceFromToolUse(toolName, phase, payload, options = {}) {
+  const kind = options.kind || traceKindFromToolName(toolName);
+  const id = options.id || randomUUID();
+  const path = tracePath(kind, payload, options);
+  const description = traceDescription(toolName, kind, payload, { ...options, path });
+  const trace = {
+    id,
+    phase,
+    kind,
+    name: options.name || traceName(toolName, kind),
+    label: options.label || traceLabel(kind),
+    ...(description ? { description } : {}),
+    ...(path ? { path } : {}),
+    ...(options.partial !== undefined ? { partial: Boolean(options.partial) } : {}),
+    ...(options.error ? { error: options.error } : {}),
+  };
+
+  if (phase === 'input') {
+    trace.input = payload;
+  } else if (payload !== undefined) {
+    trace.output = payload;
+  }
+
+  return trace;
+}
+
+export function toolTraceTitle(trace) {
+  return [trace?.label, trace?.description].filter(Boolean).join(' ') || 'Tool';
 }
 
 function isAskUserQuestionTool(toolName, input) {
@@ -462,16 +581,50 @@ function emitContentBlock(requestId, block, includeText) {
     if (isAskUserQuestionTool(block.name, block.input)) {
       return false;
     }
-    emitPart(requestId, classifyTool(block.name), stringifyBrief(block.input), toolTitle(block.name));
+    const trace = toolTraceFromToolUse(block.name, 'input', block.input, { id: block.id });
+    rememberToolTrace(trace);
+    emitPart(requestId, classifyTool(block.name), stringifyBrief(block.input), toolTraceTitle(trace), trace);
     return false;
   }
 
   if (typeof block.type === 'string' && block.type.includes('tool')) {
-    emitPart(requestId, 'tool', stringifyBrief(block), `工具 ${block.type}`);
+    const trace = toolTraceFromToolUse(block.type, 'input', block, { id: block.id });
+    rememberToolTrace(trace);
+    emitPart(requestId, partKindForToolTrace(trace), stringifyBrief(block), toolTraceTitle(trace), trace);
     return false;
   }
 
   return false;
+}
+
+export function emitUserToolResultParts(requestId, message) {
+  const content = message?.message?.content;
+  if (!Array.isArray(content)) return false;
+
+  let emitted = false;
+  for (const block of content) {
+    if (block?.type !== 'tool_result' || typeof block.tool_use_id !== 'string') {
+      continue;
+    }
+
+    const previous = toolTraceById.get(block.tool_use_id);
+    const output = textFromToolResultBlock(block);
+    const trace = {
+      id: block.tool_use_id,
+      phase: 'output',
+      kind: previous?.kind || 'tool',
+      name: previous?.name || block.tool_use_id,
+      label: previous?.label || 'Tool',
+      ...(previous?.description ? { description: previous.description } : {}),
+      ...(previous?.path ? { path: previous.path } : {}),
+      ...(output ? { output } : {}),
+      ...(block.is_error ? { error: output || '工具执行失败' } : {}),
+    };
+    emitPart(requestId, partKindForToolTrace(trace), output, toolTraceTitle(trace), trace);
+    emitted = true;
+  }
+
+  return emitted;
 }
 
 export function emitAssistantParts(requestId, message, includeText) {

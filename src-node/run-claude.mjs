@@ -11,6 +11,7 @@ import {
   parseCustomEnv,
   canUseTool,
   emitAssistantParts,
+  emitUserToolResultParts,
   emitSdkStatusPart,
   textDeltaFromStreamEvent,
   thinkingDeltaFromStreamEvent,
@@ -157,6 +158,11 @@ export async function runClaude(input) {
         continue;
       }
 
+      if (message.type === 'user') {
+        emitUserToolResultParts(requestId, message);
+        continue;
+      }
+
       if (message.type === 'result') {
         if (!sawTextDelta && !message.is_error && typeof message.result === 'string') {
           emit({ type: 'delta', requestId, text: message.result });
@@ -165,6 +171,8 @@ export async function runClaude(input) {
         if (message.is_error) {
           const detail = Array.isArray(message.errors) ? message.errors.join('\n') : 'Claude request failed';
           emit({ type: 'error', requestId, error: detail });
+        } else if (!sawTextDelta && typeof message.result !== 'string') {
+          emit({ type: 'error', requestId, error: 'Claude 没有返回任何内容，可能是工作空间路径包含特殊字符导致的。' });
         } else {
           emit({
             type: 'done',

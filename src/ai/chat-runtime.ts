@@ -150,10 +150,10 @@ export class ChatRuntime {
       providerState: session.providerState,
       messages: [],
     };
-    this.conversation.providerState = {
+    this.conversation.providerState = this.cleanProviderState({
       ...this.conversation.providerState,
       ...session.providerState,
-    };
+    });
     this.conversationTitle = stored?.title || session.title || '';
     this.currentAssistantId = null;
     this.cancellingRequestId = null;
@@ -362,10 +362,25 @@ export class ChatRuntime {
   }
 
   private mergeProviderState(providerState: ProviderState): void {
-    this.conversation.providerState = {
+    const clean = this.cleanProviderState({
       ...this.conversation.providerState,
       ...providerState,
-    };
+    });
+    this.conversation.providerState = clean;
+  }
+
+  private cleanProviderState(state: ProviderState): ProviderState {
+    const provider = this.conversation.providerId;
+    if (provider === 'pi') {
+      const { piSessionId, piSessionFile } = state as Record<string, unknown>;
+      return { ...(piSessionId ? { piSessionId } : {}), ...(piSessionFile ? { piSessionFile } : {}) } as ProviderState;
+    }
+    if (provider === 'codex') {
+      const { codexThreadId } = state as Record<string, unknown>;
+      return { ...(codexThreadId ? { codexThreadId } : {}) } as ProviderState;
+    }
+    const { claudeSessionId } = state as Record<string, unknown>;
+    return { ...(claudeSessionId ? { claudeSessionId } : {}) } as ProviderState;
   }
 
   private currentAssistant(): ChatMessage | null {
@@ -414,11 +429,11 @@ export class ChatRuntime {
     const assistant = this.currentAssistant();
     if (assistant) {
       assistant.pending = false;
-      if (!assistant.parts.some((part) => part.text.trim())) {
+      if (!assistant.parts.some((part) => part.text.trim() || (part.toolTrace && part.kind !== 'status'))) {
         assistant.parts.push({
           id: crypto.randomUUID(),
           kind: 'status',
-          text: `${this.providerLabel()} 没有返回文本内容。`,
+          text: `${this.providerLabel()} 没有返回任何内容。请检查工作空间路径是否包含特殊字符，或查看日志获取详情。`,
         });
       }
     }

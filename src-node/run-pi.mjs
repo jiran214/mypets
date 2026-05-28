@@ -1,5 +1,6 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 
 import {
@@ -10,6 +11,9 @@ import {
   stringifyBrief,
   emit,
   emitPart,
+  partKindForToolTrace,
+  toolTraceFromToolUse,
+  toolTraceTitle,
   emitToolQuestion,
   waitForToolResponse,
   normalizeAnswerArray,
@@ -337,6 +341,19 @@ export async function runPi(input) {
   const requestId = input.requestId;
   const attachments = normalizeAttachments(input.attachments);
   setActiveRequestId(requestId);
+  const activeToolIds = new Map();
+
+  const toolIdForEvent = (event, toolName, create) => {
+    const explicit = asOptionalString(event.toolCallId)
+      ?? asOptionalString(event.toolUseId)
+      ?? asOptionalString(event.toolCall?.id)
+      ?? asOptionalString(event.id);
+    if (explicit) return explicit;
+    if (create || !activeToolIds.has(toolName)) {
+      activeToolIds.set(toolName, randomUUID());
+    }
+    return activeToolIds.get(toolName);
+  };
 
   const workspaceDir = asOptionalString(input.paths?.workspaceDir) ?? process.cwd();
   const executable = asOptionalString(piSettings.pathToPiExecutable) ?? findPiExecutable();
@@ -375,7 +392,10 @@ export async function runPi(input) {
 
   let completed = false;
   let sawTextDelta = false;
-  let lastProviderState = { ...providerState };
+  let lastProviderState = {
+    ...(providerState.piSessionId ? { piSessionId: providerState.piSessionId } : {}),
+    ...(providerState.piSessionFile ? { piSessionFile: providerState.piSessionFile } : {}),
+  };
   let settleDone;
   let settleError;
   const donePromise = new Promise((resolve, reject) => {
@@ -414,23 +434,43 @@ export async function runPi(input) {
         }
         if (delta.type === 'toolcall_end' && delta.toolCall) {
           const toolName = asOptionalString(delta.toolCall.name) ?? 'tool';
-          emitPart(requestId, piPartFromToolName(toolName), stringifyBrief(delta.toolCall.args ?? delta.toolCall), `工具 ${toolName}`);
+          const trace = toolTraceFromToolUse(toolName, 'input', delta.toolCall.args ?? delta.toolCall, {
+            id: asOptionalString(delta.toolCall.id) ?? randomUUID(),
+            partial: false,
+          });
+          emitPart(requestId, partKindForToolTrace(trace), stringifyBrief(delta.toolCall.args ?? delta.toolCall), toolTraceTitle(trace), trace);
         }
         return;
       }
       case 'tool_execution_start': {
         const toolName = asOptionalString(event.toolName) ?? 'tool';
-        emitPart(requestId, piPartFromToolName(toolName), stringifyBrief(event.args), `工具 ${toolName}`);
+        const trace = toolTraceFromToolUse(toolName, 'input', event.args, {
+          id: toolIdForEvent(event, toolName, true),
+          partial: true,
+        });
+        emitPart(requestId, partKindForToolTrace(trace), stringifyBrief(event.args), toolTraceTitle(trace), trace);
         return;
       }
       case 'tool_execution_update': {
         const toolName = asOptionalString(event.toolName) ?? 'tool';
-        emitPart(requestId, piPartFromToolName(toolName), textFromPiToolResult(event.partialResult), `工具 ${toolName}`);
+        const output = textFromPiToolResult(event.partialResult);
+        const trace = toolTraceFromToolUse(toolName, 'update', output || event.partialResult, {
+          id: toolIdForEvent(event, toolName, false),
+          partial: true,
+        });
+        emitPart(requestId, partKindForToolTrace(trace), output, toolTraceTitle(trace), trace);
         return;
       }
       case 'tool_execution_end': {
         const toolName = asOptionalString(event.toolName) ?? 'tool';
-        emitPart(requestId, piPartFromToolName(toolName), textFromPiToolResult(event.result), event.isError ? `工具失败 ${toolName}` : `工具 ${toolName}`);
+        const output = textFromPiToolResult(event.result);
+        const trace = toolTraceFromToolUse(toolName, 'output', output || event.result, {
+          id: toolIdForEvent(event, toolName, false),
+          error: event.isError ? output || '工具执行失败' : undefined,
+          partial: false,
+        });
+        emitPart(requestId, partKindForToolTrace(trace), output, toolTraceTitle(trace), trace);
+        activeToolIds.delete(toolName);
         return;
       }
       case 'queue_update':
