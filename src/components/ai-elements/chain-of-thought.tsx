@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import { BrainIcon, ChevronDownIcon, DotIcon } from "lucide-react";
 import type { ComponentProps, ReactNode } from "react";
-import { createContext, memo, useContext, useMemo } from "react";
+import { createContext, createElement, memo, useContext, useMemo } from "react";
 
 interface ChainOfThoughtContextValue {
   isOpen: boolean;
@@ -102,7 +102,7 @@ export const ChainOfThoughtHeader = memo(
 );
 
 export type ChainOfThoughtStepProps = ComponentProps<"div"> & {
-  icon?: LucideIcon;
+  icon?: LucideIcon | null;
   label: ReactNode;
   description?: ReactNode;
   status?: "complete" | "active" | "pending";
@@ -117,7 +117,7 @@ const stepStatusStyles = {
 export const ChainOfThoughtStep = memo(
   ({
     className,
-    icon: Icon = DotIcon,
+    icon: iconProp = DotIcon,
     label,
     description,
     status = "complete",
@@ -133,10 +133,12 @@ export const ChainOfThoughtStep = memo(
       )}
       {...props}
     >
-      <div className="relative mt-0.5">
-        <Icon className="size-4" />
-        <div className="absolute top-7 bottom-0 left-1/2 -mx-px w-px bg-border" />
-      </div>
+      {iconProp !== null && (
+        <div className="relative mt-0.5">
+          {createElement(iconProp, { className: "size-4" })}
+          <div className="absolute top-7 bottom-0 left-1/2 -mx-px w-px bg-border" />
+        </div>
+      )}
       <div className="flex-1 space-y-2 overflow-hidden">
         <div>{label}</div>
         {description && (

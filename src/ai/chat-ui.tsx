@@ -24,10 +24,11 @@ import {
   Search,
   SendHorizontal,
   Sparkles,
-  Terminal,
+  SquareTerminal,
   Timer,
   Wrench,
   X,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   Attachment,
@@ -53,6 +54,7 @@ import {
   ChainOfThought,
   ChainOfThoughtHeader,
   ChainOfThoughtContent,
+  ChainOfThoughtStep,
 } from '@/components/ai-elements/chain-of-thought';
 import { CodeBlock } from '@/components/ai-elements/code-block';
 import {
@@ -495,7 +497,7 @@ export function ChatPanel({ runtime, compact = false, variant, petName, onInputF
       )}
     >
       <div className={cn('relative flex h-11 shrink-0 items-center justify-between border-b px-2', !isBubble && 'bg-background')}>
-        <div className="flex items-center">
+        <div className="flex items-center gap-1.5">
           <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <Button
@@ -889,8 +891,6 @@ function ChainOfThoughtView({
   chain: ChainOfThoughtModel;
   streaming: boolean;
 }): ReactNode {
-  const stepCount = chain.items.reduce((count, item) => count + item.parts.length, 0);
-
   return (
     <ChainOfThought className="mb-2 px-0" defaultOpen={true}>
       <ChainOfThoughtHeader>
@@ -902,87 +902,58 @@ function ChainOfThoughtView({
               <span className="font-medium">已思考</span>
             )}
           </div>
-          {stepCount > 0 && (
-            <Badge variant="secondary" className="shrink-0 rounded-full text-[11px]">
-              {stepCount} 条
-            </Badge>
-          )}
         </div>
       </ChainOfThoughtHeader>
       {chain.items.length > 0 && (
         <ChainOfThoughtContent>
           <div className="space-y-2 pl-0.5">
-            {chain.items.map((item) => (
-              <TimelineItemView key={item.id} item={item} streaming={streaming} />
-            ))}
+            {chain.items.map((item) => {
+              const description = item.description || item.path;
+              const isPartial = streaming && item.traces.some((t) => t.partial);
+              return (
+                <ChainOfThoughtStep
+                  key={item.id}
+                  icon={timelineItemIcon(item.kind)}
+                  label={
+                    <Collapsible className="group" defaultOpen={false}>
+                      <CollapsibleTrigger asChild>
+                        <div className="flex min-w-0 cursor-pointer items-center gap-1.5 text-xs font-medium">
+                          <span className="shrink-0">{item.label}</span>
+                          {item.kind === 'read' && item.path ? (
+                            <PathInlineButton path={item.path} title={item.path} />
+                          ) : description ? (
+                            <span className="min-w-0 truncate text-foreground/80">{description}</span>
+                          ) : null}
+                          {isPartial && (
+                            <Badge variant="outline" className="shrink-0 rounded-full text-[10px]">
+                              运行中
+                            </Badge>
+                          )}
+                          <ChevronDown className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+                        </div>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1">
+                        <div className="space-y-2 pt-2 text-xs">
+                          {(item.kind === 'bash' ? item.traces.slice(-1) : item.traces).map((trace, index) => (
+                            <TimelineTraceDetail
+                              key={`${trace.id}-${trace.phase}-${index}`}
+                              index={item.traces.length > 1 ? index + 1 : undefined}
+                              part={item.parts[index] ?? item.parts[0]}
+                              trace={trace}
+                            />
+                          ))}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  }
+                  status={isPartial ? 'active' : 'complete'}
+                />
+              );
+            })}
           </div>
         </ChainOfThoughtContent>
       )}
     </ChainOfThought>
-  );
-}
-
-function TimelineItemView({
-  item,
-  streaming,
-}: {
-  item: TimelineItem;
-  streaming: boolean;
-}): ReactNode {
-  return (
-    <Collapsible className="group" defaultOpen={false}>
-      <CollapsibleTrigger asChild>
-        <div
-          className="flex w-full cursor-pointer items-center justify-between gap-2 px-2.5 py-2 text-muted-foreground transition-colors hover:text-foreground"
-          role="button"
-          tabIndex={0}
-          title={item.title}
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            {timelineItemIcon(item.kind)}
-            <TimelineItemTitle item={item} />
-            {item.parts.length > 1 && (
-              <Badge variant="secondary" className="shrink-0 rounded-full text-[10px]">
-                {item.parts.length} 次
-              </Badge>
-            )}
-            {streaming && item.traces.some((trace) => trace.partial) && (
-              <Badge variant="outline" className="shrink-0 rounded-full text-[10px]">
-                运行中
-              </Badge>
-            )}
-          </div>
-          <ChevronDown className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
-        </div>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1">
-        <div className="space-y-2 px-2.5 pb-2.5 text-xs">
-          {item.traces.map((trace, index) => (
-            <TimelineTraceDetail
-              key={`${trace.id}-${trace.phase}-${index}`}
-              index={item.traces.length > 1 ? index + 1 : undefined}
-              part={item.parts[index] ?? item.parts[0]}
-              trace={trace}
-            />
-          ))}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-  );
-}
-
-function TimelineItemTitle({ item }: { item: TimelineItem }): ReactNode {
-  const description = item.description || item.path;
-
-  return (
-    <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
-      <span className="shrink-0">{item.label}</span>
-      {item.kind === 'read' && item.path ? (
-        <PathInlineButton path={item.path} title={item.path} />
-      ) : description ? (
-        <span className="min-w-0 truncate text-foreground/80">{description}</span>
-      ) : null}
-    </span>
   );
 }
 
@@ -995,10 +966,26 @@ function TimelineTraceDetail({
   part: ChatMessagePart;
   index?: number;
 }): ReactNode {
-  const input = trace.input ?? (trace.phase === 'input' ? fallbackTraceText(part) : undefined);
   const output = trace.output ?? (trace.phase === 'output' || trace.phase === 'update' || trace.phase === 'status'
     ? fallbackTraceText(part)
     : undefined);
+
+  if (trace.kind === 'bash') {
+    const text = trace.error ?? output;
+    if (!text) return null;
+    return (
+      <div className="max-h-48 overflow-y-auto rounded-md bg-zinc-100 p-3 text-xs">
+        <pre className="whitespace-pre-wrap font-mono text-zinc-800">{String(text).replace(/\n{2,}/g, '\n')}</pre>
+      </div>
+    );
+  }
+
+  if (trace.label === '思考') {
+    if (!output) return null;
+    return <pre className="whitespace-pre-wrap wrap-break-word text-xs">{String(output)}</pre>;
+  }
+
+  const input = trace.input ?? (trace.phase === 'input' ? fallbackTraceText(part) : undefined);
 
   return (
     <div className="space-y-2 py-1 leading-relaxed">
@@ -1009,8 +996,8 @@ function TimelineTraceDetail({
       )}
       {input !== undefined && (
         <TraceValueBlock
-          label={trace.kind === 'bash' ? '命令' : '输入'}
-          language={trace.kind === 'bash' ? 'bash' : 'json'}
+          label="输入"
+          language="json"
           value={input}
         />
       )}
@@ -1082,14 +1069,14 @@ function PathInlineButton({ path, title }: { path: string; title?: string }): Re
   );
 }
 
-function timelineItemIcon(kind: TimelineItem['kind']): ReactNode {
-  if (kind === 'thinking') return <Brain className="size-3.5 shrink-0" />;
-  if (kind === 'bash') return <Terminal className="size-3.5 shrink-0" />;
-  if (kind === 'read') return <FileText className="size-3.5 shrink-0" />;
-  if (kind === 'mcp') return <Plug className="size-3.5 shrink-0" />;
-  if (kind === 'status') return <Clock className="size-3.5 shrink-0" />;
-  if (kind === 'plan') return <Sparkles className="size-3.5 shrink-0" />;
-  return <Wrench className="size-3.5 shrink-0" />;
+function timelineItemIcon(kind: TimelineItem['kind']): LucideIcon | undefined {
+  if (kind === 'thinking') return undefined;
+  if (kind === 'bash') return SquareTerminal;
+  if (kind === 'read') return FileText;
+  if (kind === 'mcp') return Plug;
+  if (kind === 'status') return Clock;
+  if (kind === 'plan') return Sparkles;
+  return Wrench;
 }
 
 function fallbackTraceText(part: ChatMessagePart): string | undefined {
