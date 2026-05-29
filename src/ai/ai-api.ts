@@ -9,7 +9,6 @@ import type {
   AiState,
   AiToolQuestionAnswerRequest,
   PiProviderAuth,
-  ProviderId,
   SavedDroppedChatFile,
   SkillInfo,
 } from './ai-types';
@@ -42,8 +41,8 @@ export function savePiProviderAuth(provider: string, authKey: string, key: strin
   return invoke<PiProviderAuth>('save_pi_provider_auth', { provider, authKey, key });
 }
 
-export function listSkills(workspaceFolder: string, providerId: ProviderId): Promise<SkillInfo[]> {
-  return invoke<SkillInfo[]>('list_skills', { workspaceFolder, providerId });
+export function listSkills(workspaceFolder: string): Promise<SkillInfo[]> {
+  return invoke<SkillInfo[]>('list_skills', { workspaceFolder });
 }
 
 export function saveDroppedChatFile(

@@ -31,7 +31,7 @@ export function SkillSettings({
     let disposed = false;
     setLoading(true);
 
-    void listSkills(readyWorkspace.folder, settingsDraft.providerId)
+    void listSkills(readyWorkspace.folder)
       .then((result) => {
         if (!disposed) setSkills(result);
       })
@@ -45,7 +45,7 @@ export function SkillSettings({
     return () => {
       disposed = true;
     };
-  }, [readyWorkspace, settingsDraft.providerId]);
+  }, [readyWorkspace]);
 
   const disabledSkills = settingsDraft.pi.disabledSkills;
 

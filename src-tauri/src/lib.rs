@@ -7,7 +7,7 @@ pub use ai::ai_process::terminate_all_ai_processes;
 use tauri::{
     menu::MenuBuilder,
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Manager, RunEvent, WindowEvent,
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
@@ -45,7 +45,6 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             TRAY_SHOW_MAIN_ID => show_main_window(app),
             TRAY_QUIT_ID => {
-                ai::ai_process::terminate_all_ai_processes();
                 close_pet_windows(app);
                 app.exit(0);
             }
@@ -74,7 +73,7 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             setup_tray(app)?;
@@ -113,6 +112,20 @@ pub fn run() {
             pet::open_workspace_in_file_manager,
             pet::open_file_with_default_app,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    let app_handle = app.handle().clone();
+    if let Err(err) = ctrlc::set_handler(move || {
+        app_handle.exit(0);
+    }) {
+        eprintln!("Error setting Ctrl-C handler: {err}");
+    }
+
+    app.run(|_, event| match event {
+        RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+            ai::ai_process::terminate_all_ai_processes();
+        }
+        _ => {}
+    });
 }

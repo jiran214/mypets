@@ -11,10 +11,10 @@ use super::ai_models::*;
 use super::ai_payload::{build_chat_payload, helper_path, session_prompt};
 use super::ai_process::{
     active_ai_process_pid, mark_ai_request_cancelled, remove_tool_input_writer,
-    terminate_process_tree, tool_input_writers,
+    send_abort_to_request, terminate_process_tree_after_grace, tool_input_writers,
 };
 use super::ai_runner::{spawn_node_runner, RunnerConfig};
-use super::ai_skills::{collect_all_skills, default_provider_id, SkillInfo};
+use super::ai_skills::{collect_all_skills, SkillInfo};
 use super::ai_storage::{
     append_ai_log, load_agents_md, load_auto_tasks, load_settings, now_ms, path_to_string,
     pi_auth_path, public_paths, read_pi_auth_file, resolve_storage, safe_pi_auth_key,
@@ -183,11 +183,9 @@ pub fn delete_auto_task(workspace_folder: String, task_id: String) -> Result<(),
 #[tauri::command]
 pub fn list_skills(
     workspace_folder: String,
-    provider_id: Option<String>,
 ) -> Result<Vec<SkillInfo>, String> {
-    let provider_id = provider_id.unwrap_or_else(default_provider_id);
     let workspace_dir = std::path::PathBuf::from(&workspace_folder);
-    Ok(collect_all_skills(&workspace_dir, &provider_id))
+    Ok(collect_all_skills(&workspace_dir))
 }
 
 #[tauri::command]
@@ -220,16 +218,10 @@ pub fn save_dropped_chat_file(
 pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<String, String> {
     let paths = resolve_storage(&request.workspace_folder)?;
     let settings = load_settings(&paths)?;
-    let provider_id = if request.provider_id.trim().is_empty() {
-        settings.provider_id.clone()
-    } else {
-        request.provider_id.clone()
-    };
     let session_prompt = session_prompt(&request);
     write_session_meta(
         &paths,
         &request.conversation_id,
-        &provider_id,
         request.provider_state.clone(),
         &session_prompt,
         &request.title,
@@ -245,7 +237,7 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
         }
     };
 
-    let all_skill_names: Vec<String> = collect_all_skills(&paths.workspace_dir, &provider_id)
+    let all_skill_names: Vec<String> = collect_all_skills(&paths.workspace_dir)
         .into_iter()
         .map(|s| s.name)
         .collect();
@@ -254,7 +246,6 @@ pub fn send_ai_chat_message(app: AppHandle, request: AiChatRequest) -> Result<St
     let config = RunnerConfig {
         request_id: request.request_id.clone(),
         conversation_id: request.conversation_id.clone(),
-        provider_id: provider_id.clone(),
         paths: paths.clone(),
         helper,
         workspace_dir: paths.workspace_dir.clone(),
@@ -274,23 +265,11 @@ pub fn cancel_ai_chat_message(app: AppHandle, request_id: String) -> Result<(), 
     let pid = active_ai_process_pid(&request_id)?;
 
     mark_ai_request_cancelled(&request_id);
-    let writer = tool_input_writers()
-        .lock()
-        .ok()
-        .and_then(|writers| writers.get(&request_id).cloned());
-    if let Some(writer) = writer {
-        if let Ok(mut writer) = writer.lock() {
-            let _ = writeln!(
-                writer,
-                "{}",
-                json!({ "type": "abort", "requestId": request_id })
-            );
-            let _ = writer.flush();
-        }
-    }
-    remove_tool_input_writer(&request_id);
+    send_abort_to_request(&request_id);
     if let Some(pid) = pid {
-        let _ = terminate_process_tree(pid);
+        terminate_process_tree_after_grace(request_id.clone(), pid);
+    } else {
+        remove_tool_input_writer(&request_id);
     }
 
     let _ = app.emit(

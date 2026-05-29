@@ -52,15 +52,12 @@ pub(crate) fn build_chat_payload(
     json!({
         "requestId": request.request_id,
         "conversationId": request.conversation_id,
-        "providerId": settings.provider_id,
         "prompt": request.prompt,
         "attachments": request.attachments,
         "providerState": request.provider_state,
         "allSkillNames": all_skill_names,
         "settings": {
-            "providerId": settings.provider_id,
             "pi": {
-                "pathToPiExecutable": settings.pi.path_to_pi_executable,
                 "provider": settings.pi.provider,
                 "model": settings.pi.model,
                 "thinkingLevel": settings.pi.thinking_level,

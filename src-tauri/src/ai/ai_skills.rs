@@ -17,10 +17,6 @@ pub(crate) fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-pub(crate) fn default_provider_id() -> String {
-    "pi".to_string()
-}
-
 fn parse_skill_md(path: &Path) -> Option<SkillInfo> {
     let raw = fs::read_to_string(path).ok()?;
     let mut name = String::new();
@@ -100,7 +96,7 @@ fn scan_skills_dir(dir: &Path, scope: &str) -> Vec<SkillInfo> {
     skills
 }
 
-pub(crate) fn collect_all_skills(workspace_dir: &Path, _provider_id: &str) -> Vec<SkillInfo> {
+pub(crate) fn collect_all_skills(workspace_dir: &Path) -> Vec<SkillInfo> {
     let mut skills = Vec::new();
 
     skills.extend(scan_skills_dir(

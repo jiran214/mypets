@@ -1,10 +1,16 @@
 use std::{
     collections::{HashMap, HashSet},
+    io::Write,
     process::{ChildStdin, Command, Stdio},
     sync::{Arc, Mutex, OnceLock},
+    thread,
+    time::Duration,
 };
 
+use serde_json::json;
+
 pub(crate) type ToolInputWriter = Arc<Mutex<ChildStdin>>;
+const AI_TERMINATION_GRACE_MS: u64 = 800;
 
 pub(crate) fn tool_input_writers() -> &'static Mutex<HashMap<String, ToolInputWriter>> {
     static WRITERS: OnceLock<Mutex<HashMap<String, ToolInputWriter>>> = OnceLock::new();
@@ -24,6 +30,23 @@ fn cancelled_ai_requests() -> &'static Mutex<HashSet<String>> {
 pub(crate) fn remove_tool_input_writer(request_id: &str) {
     if let Ok(mut writers) = tool_input_writers().lock() {
         writers.remove(request_id);
+    }
+}
+
+pub(crate) fn send_abort_to_request(request_id: &str) {
+    let writer = tool_input_writers()
+        .lock()
+        .ok()
+        .and_then(|writers| writers.get(request_id).cloned());
+    if let Some(writer) = writer {
+        if let Ok(mut writer) = writer.lock() {
+            let _ = writeln!(
+                writer,
+                "{}",
+                json!({ "type": "abort", "requestId": request_id })
+            );
+            let _ = writer.flush();
+        }
     }
 }
 
@@ -60,11 +83,57 @@ pub(crate) fn active_ai_process_pid(request_id: &str) -> Result<Option<u32>, Str
         .copied())
 }
 
-pub fn terminate_all_ai_processes() {
-    if let Ok(mut processes) = active_ai_processes().lock() {
-        for (_, pid) in processes.drain() {
+pub(crate) fn terminate_process_tree_after_grace(request_id: String, pid: u32) {
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(AI_TERMINATION_GRACE_MS));
+        let still_active = active_ai_process_pid(&request_id)
+            .map(|active_pid| active_pid == Some(pid))
+            .unwrap_or(false);
+        if still_active {
             let _ = terminate_process_tree(pid);
+            remove_ai_process(&request_id);
         }
+        remove_tool_input_writer(&request_id);
+    });
+}
+
+pub fn terminate_all_ai_processes() {
+    let entries = active_ai_processes()
+        .lock()
+        .map(|processes| {
+            processes
+                .iter()
+                .map(|(request_id, pid)| (request_id.clone(), *pid))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if entries.is_empty() {
+        return;
+    }
+
+    for (request_id, _) in &entries {
+        mark_ai_request_cancelled(request_id);
+        send_abort_to_request(request_id);
+    }
+
+    thread::sleep(Duration::from_millis(AI_TERMINATION_GRACE_MS));
+
+    let mut remaining = Vec::new();
+    if let Ok(mut processes) = active_ai_processes().lock() {
+        for (request_id, pid) in &entries {
+            if processes.remove(request_id).is_some() {
+                remaining.push((request_id.clone(), *pid));
+            }
+        }
+    }
+
+    for (_, pid) in remaining {
+        let _ = terminate_process_tree(pid);
+    }
+
+    for (request_id, _) in entries {
+        remove_tool_input_writer(&request_id);
     }
 }
 

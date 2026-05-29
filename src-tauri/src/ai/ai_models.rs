@@ -1,13 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::ai_skills::default_provider_id;
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PiSettings {
-    #[serde(default)]
-    pub path_to_pi_executable: String,
     #[serde(default)]
     pub provider: String,
     #[serde(default)]
@@ -37,8 +33,6 @@ pub struct PiSettings {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AiSettings {
-    #[serde(default = "default_provider_id")]
-    pub provider_id: String,
     #[serde(default)]
     pub pet_always_on_top: bool,
     #[serde(default = "default_pet_gravity_enabled")]
@@ -106,8 +100,6 @@ pub struct AiChatRequest {
     pub request_id: String,
     pub conversation_id: String,
     pub workspace_folder: String,
-    #[serde(default = "default_provider_id")]
-    pub provider_id: String,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
@@ -133,7 +125,6 @@ pub struct AiToolQuestionAnswerRequest {
 #[serde(rename_all = "camelCase")]
 pub struct AiSessionSummary {
     pub id: String,
-    pub provider_id: String,
     pub provider_state: Value,
     pub title: String,
     pub created_at: u64,
@@ -195,7 +186,6 @@ pub struct AutoTask {
 impl Default for PiSettings {
     fn default() -> Self {
         Self {
-            path_to_pi_executable: String::new(),
             provider: String::new(),
             model: String::new(),
             thinking_level: default_pi_thinking_level(),
@@ -215,7 +205,6 @@ impl Default for PiSettings {
 impl Default for AiSettings {
     fn default() -> Self {
         Self {
-            provider_id: default_provider_id(),
             pet_always_on_top: false,
             pet_gravity_enabled: default_pet_gravity_enabled(),
             pet_scale: default_pet_scale(),

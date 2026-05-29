@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type {
   AiSettings,
   PiThinkingLevel,
-  ProviderId,
 } from '@/ai/ai-types';
 import type { ReadyPetWorkspace } from '@/workspaces';
 import { loadPiProviderAuth, savePiProviderAuth } from '@/ai/ai-api';
@@ -24,9 +23,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { SettingDropdown } from './setting-dropdown';
 
-const PROVIDER_OPTIONS: { value: ProviderId; label: string; description: string }[] = [
-  { value: 'pi', label: 'Pi', description: '使用 Pi Coding Agent RPC 模式。' },
-];
 const PI_PROVIDER_OPTIONS: { value: string; label: string; envVar: string; authKey: string }[] = [
   { value: 'anthropic', label: 'Anthropic', envVar: 'ANTHROPIC_API_KEY', authKey: 'anthropic' },
   { value: 'azure-openai-responses', label: 'Azure OpenAI Responses', envVar: 'AZURE_OPENAI_API_KEY', authKey: 'azure-openai-responses' },
@@ -80,7 +76,6 @@ export function AgentSettings({
   onSettingsChange,
 }: AgentSettingsProps): ReactNode {
   const disabled = !readyWorkspace;
-  const selectedProvider = PROVIDER_OPTIONS.find((option) => option.value === settingsDraft.providerId);
   const selectedPiThinkingLevel = PI_THINKING_OPTIONS.find((option) => option.value === settingsDraft.pi.thinkingLevel);
   const selectedPiProvider = piProviderOption(settingsDraft.pi.provider);
   const piProviderValue = settingsDraft.pi.provider.trim();
@@ -94,7 +89,7 @@ export function AgentSettings({
   const piAuthDirtyRef = useRef(false);
 
   useEffect(() => {
-    if (disabled || settingsDraft.providerId !== 'pi' || !knownPiProvider || !piAuthKey) {
+    if (disabled || !knownPiProvider || !piAuthKey) {
       setPiApiKey('');
       setPiAuthStatus(knownPiProvider ? '' : '自定义 provider 不写入 Pi auth.json，请在自定义环境变量中配置 API key。');
       setPiAuthLoadedKey('');
@@ -122,10 +117,10 @@ export function AgentSettings({
     return () => {
       disposed = true;
     };
-  }, [disabled, settingsDraft.providerId, knownPiProvider, piProviderValue, piAuthKey]);
+  }, [disabled, knownPiProvider, piProviderValue, piAuthKey]);
 
   useEffect(() => {
-    if (disabled || settingsDraft.providerId !== 'pi' || !knownPiProvider || !piAuthKey || piAuthLoadedKey !== piAuthKey) return;
+    if (disabled || !knownPiProvider || !piAuthKey || piAuthLoadedKey !== piAuthKey) return;
     if (!piAuthDirtyRef.current) return;
 
     const saveTimer = setTimeout(() => {
@@ -141,43 +136,13 @@ export function AgentSettings({
     }, 600);
 
     return () => window.clearTimeout(saveTimer);
-  }, [disabled, settingsDraft.providerId, knownPiProvider, piProviderValue, piAuthKey, piAuthLoadedKey, piApiKey]);
+  }, [disabled, knownPiProvider, piProviderValue, piAuthKey, piAuthLoadedKey, piApiKey]);
 
   return (
     <div className="flex flex-col gap-4">
       <FieldSet disabled={disabled}>
-        <FieldLegend>{selectedProvider?.label ?? 'Agent'} Agent</FieldLegend>
+        <FieldLegend>Pi Agent</FieldLegend>
         <FieldGroup className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Field className="lg:col-span-2" data-disabled={disabled}>
-            <FieldLabel>Provider</FieldLabel>
-            <SettingDropdown
-              disabled={disabled}
-              value={selectedProvider?.label ?? settingsDraft.providerId}
-              menuClassName="max-w-[32rem]"
-            >
-              <DropdownMenuRadioGroup
-                value={settingsDraft.providerId}
-                onValueChange={(value) => onSettingsChange({
-                  ...settingsDraft,
-                  providerId: value as ProviderId,
-                })}
-              >
-                {PROVIDER_OPTIONS.map((option) => (
-                  <DropdownMenuRadioItem
-                    key={option.value}
-                    value={option.value}
-                    className="items-start gap-2 py-2 pr-8 whitespace-normal break-words leading-5"
-                  >
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="font-medium">{option.label}</span>
-                      <span className="text-xs text-muted-foreground">{option.description}</span>
-                    </span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </SettingDropdown>
-          </Field>
-
           <Field data-disabled={disabled}>
                 <FieldLabel>Pi provider</FieldLabel>
                 <SettingDropdown
@@ -256,20 +221,6 @@ export function AgentSettings({
                     ))}
                   </DropdownMenuRadioGroup>
                 </SettingDropdown>
-              </Field>
-
-              <Field className="lg:col-span-2" data-disabled={disabled}>
-                <FieldLabel htmlFor="pi-executable">Pi 可执行文件</FieldLabel>
-                <Input
-                  id="pi-executable"
-                  value={settingsDraft.pi.pathToPiExecutable}
-                  disabled={disabled}
-                  placeholder="不填写会优先使用项目内 pi，再查找 PATH"
-                  onChange={(event) => onSettingsChange({
-                    ...settingsDraft,
-                    pi: { ...settingsDraft.pi, pathToPiExecutable: event.currentTarget.value },
-                  })}
-                />
               </Field>
 
               <Field orientation="horizontal" data-disabled={disabled}>

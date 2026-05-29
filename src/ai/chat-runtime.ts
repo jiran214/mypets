@@ -14,8 +14,7 @@ import type {
   ChatMessagePart,
   ChatMessage,
   Conversation,
-  ProviderId,
-  ProviderState,
+  PiSessionState,
   ToolQuestionAnswerPayload,
   ToolQuestionPartData,
   ToolQuestionRequest,
@@ -37,7 +36,6 @@ export class ChatRuntime {
   private workspaceFolder = '';
   private conversation: Conversation = {
     id: `conv-${Date.now()}`,
-    providerId: 'pi',
     providerState: {},
     messages: [],
   };
@@ -70,7 +68,6 @@ export class ChatRuntime {
   setAiState(state: AiState): void {
     this.aiState = state;
     if (!this.currentRequestId && this.conversation.messages.length === 0) {
-      this.conversation.providerId = state.settings.providerId;
       this.conversation.providerState = {};
     }
     this.notify();
@@ -92,7 +89,6 @@ export class ChatRuntime {
     this.sessions = folder ? await this.loadSessions() : [];
     this.conversation = {
       id: `conv-${Date.now()}`,
-      providerId: this.aiState?.settings.providerId ?? 'pi',
       providerState: {},
       messages: [],
     };
@@ -129,7 +125,6 @@ export class ChatRuntime {
 
     this.conversation = {
       id: `conv-${Date.now()}`,
-      providerId: this.defaultProviderId(),
       providerState: {},
       messages: [],
     };
@@ -146,7 +141,6 @@ export class ChatRuntime {
     const stored = this.loadStoredConversation(session.id);
     this.conversation = stored?.conversation ?? {
       id: session.id,
-      providerId: session.providerId,
       providerState: session.providerState,
       messages: [],
     };
@@ -203,7 +197,7 @@ export class ChatRuntime {
     if (!this.conversationTitle) {
       this.conversationTitle = createTitle(prompt || attachments[0]?.name || '文件');
     }
-    this.statusText = `正在连接 ${this.providerLabel()}...`;
+    this.statusText = `正在连接 ${'Pi'}...`;
     this.conversation.messages.push(userMessage, assistantMessage);
     this.saveCurrentConversation();
     this.notify();
@@ -213,7 +207,6 @@ export class ChatRuntime {
         requestId,
         conversationId: this.conversation.id,
         workspaceFolder: this.workspaceFolder,
-        providerId: this.conversation.providerId,
         prompt,
         attachments,
         providerState: this.conversation.providerState,
@@ -228,7 +221,7 @@ export class ChatRuntime {
     if (!requestId || this.cancellingRequestId === requestId) return;
 
     this.cancellingRequestId = requestId;
-    this.statusText = `正在打断 ${this.providerLabel()}...`;
+    this.statusText = `正在打断 ${'Pi'}...`;
     this.notify();
 
     try {
@@ -255,7 +248,7 @@ export class ChatRuntime {
     }));
     if (!request) return;
 
-    this.statusText = `已发送选择，等待 ${this.providerLabel()} 继续...`;
+    this.statusText = `已发送选择，等待 ${'Pi'} 继续...`;
     this.saveCurrentConversation();
     this.notify();
 
@@ -291,7 +284,7 @@ export class ChatRuntime {
     if (event.requestId !== this.currentRequestId) return;
 
     if (event.type === 'status') {
-      this.statusText = event.status === 'started' ? `${this.providerLabel()} 正在回复...` : event.status;
+      this.statusText = event.status === 'started' ? `${'Pi'} 正在回复...` : event.status;
       this.notifyThrottled();
       return;
     }
@@ -308,7 +301,7 @@ export class ChatRuntime {
       if (!assistant) return;
       this.appendPart(assistant, { kind: 'text', text: event.text });
       assistant.pending = true;
-      this.statusText = `${this.providerLabel()} 正在回复...`;
+      this.statusText = `${'Pi'} 正在回复...`;
       this.saveCurrentConversation();
       this.notifyThrottled();
       return;
@@ -319,7 +312,7 @@ export class ChatRuntime {
       if (!assistant) return;
       this.appendPart(assistant, event.part);
       assistant.pending = true;
-      this.statusText = `${this.providerLabel()} 正在回复...`;
+      this.statusText = `${'Pi'} 正在回复...`;
       this.saveCurrentConversation();
       this.notifyThrottled();
       return;
@@ -361,7 +354,7 @@ export class ChatRuntime {
     this.finishWithError(event.error);
   }
 
-  private mergeProviderState(providerState: ProviderState): void {
+  private mergeProviderState(providerState: PiSessionState): void {
     const clean = this.cleanProviderState({
       ...this.conversation.providerState,
       ...providerState,
@@ -369,9 +362,9 @@ export class ChatRuntime {
     this.conversation.providerState = clean;
   }
 
-  private cleanProviderState(state: ProviderState): ProviderState {
+  private cleanProviderState(state: PiSessionState): PiSessionState {
     const { piSessionId, piSessionFile } = state as Record<string, unknown>;
-    return { ...(piSessionId ? { piSessionId } : {}), ...(piSessionFile ? { piSessionFile } : {}) } as ProviderState;
+    return { ...(piSessionId ? { piSessionId } : {}), ...(piSessionFile ? { piSessionFile } : {}) } as PiSessionState;
   }
 
   private currentAssistant(): ChatMessage | null {
@@ -421,10 +414,18 @@ export class ChatRuntime {
     if (assistant) {
       assistant.pending = false;
       if (!assistant.parts.some((part) => part.text.trim() || (part.toolTrace && part.kind !== 'status'))) {
+        // 记录 Pi 没有返回内容的详细信息
+        console.warn('[ChatRuntime] Pi 没有返回任何内容', {
+          requestId: this.currentRequestId,
+          workspaceFolder: this.workspaceFolder,
+          conversationId: this.conversation.id,
+          messageParts: assistant.parts.map(p => ({ kind: p.kind, textLength: p.text?.length, hasToolTrace: !!p.toolTrace })),
+          providerState: this.conversation.providerState,
+        });
         assistant.parts.push({
           id: crypto.randomUUID(),
           kind: 'status',
-          text: `${this.providerLabel()} 没有返回任何内容。请检查工作空间路径是否包含特殊字符，或查看日志获取详情。`,
+          text: `${'Pi'} 没有返回任何内容。请检查工作空间路径是否包含特殊字符，或查看日志获取详情。`,
         });
       }
     }
@@ -442,7 +443,7 @@ export class ChatRuntime {
       assistant.parts = [{
         id: crypto.randomUUID(),
         kind: 'status',
-        text: error || `${this.providerLabel()} 请求失败。`,
+        text: error || `${'Pi'} 请求失败。`,
       }];
     }
     this.resetAfterFinish();
@@ -546,13 +547,6 @@ export class ChatRuntime {
     }
   }
 
-  private defaultProviderId(): ProviderId {
-    return this.aiState?.settings.providerId ?? 'pi';
-  }
-
-  private providerLabel(_providerId: ProviderId = this.conversation.providerId): string {
-    return 'Pi';
-  }
 }
 
 function createTitle(prompt: string): string {
@@ -571,7 +565,6 @@ function isConversation(value: unknown): value is Conversation {
   const conversation = value as Partial<Conversation>;
   return (
     typeof conversation.id === 'string'
-    && conversation.providerId === 'pi'
     && typeof conversation.providerState === 'object'
     && Array.isArray(conversation.messages)
   );

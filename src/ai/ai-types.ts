@@ -1,9 +1,7 @@
-export type ProviderId = 'pi';
 export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type PiQueueMode = 'all' | 'one-at-a-time';
 
 export interface PiSettings {
-  pathToPiExecutable: string;
   provider: string;
   model: string;
   thinkingLevel: PiThinkingLevel;
@@ -25,7 +23,6 @@ export interface PiProviderAuth {
 }
 
 export interface AiSettings {
-  providerId: ProviderId;
   petAlwaysOnTop: boolean;
   petGravityEnabled: boolean;
   petScale: number;
@@ -46,15 +43,14 @@ export interface AiState {
   paths: AiPaths;
 }
 
-export interface ProviderState {
+export interface PiSessionState {
   piSessionId?: string;
   piSessionFile?: string;
 }
 
 export interface AiSessionSummary {
   id: string;
-  providerId: ProviderId;
-  providerState: ProviderState;
+  providerState: PiSessionState;
   title: string;
   createdAt: number;
   updatedAt: number;
@@ -100,8 +96,7 @@ export interface ChatMessagePart {
 
 export interface Conversation {
   id: string;
-  providerId: ProviderId;
-  providerState: ProviderState;
+  providerState: PiSessionState;
   messages: ChatMessage[];
 }
 
@@ -170,13 +165,12 @@ export interface AiChatRequest {
   requestId: string;
   conversationId: string;
   workspaceFolder: string;
-  providerId: ProviderId;
   title?: string;
   autoTaskId?: string;
   autoTaskName?: string;
   prompt: string;
   attachments?: ChatAttachment[];
-  providerState: ProviderState;
+  providerState: PiSessionState;
 }
 
 export interface AiToolQuestionAnswerRequest {
@@ -187,10 +181,10 @@ export interface AiToolQuestionAnswerRequest {
 
 export type AiChatEvent =
   | { type: 'status'; requestId: string; status: string }
-  | { type: 'session'; requestId: string; providerState: ProviderState }
+  | { type: 'session'; requestId: string; providerState: PiSessionState }
   | { type: 'part'; requestId: string; part: Omit<ChatMessagePart, 'id'> }
   | { type: 'question'; requestId: string; question: ToolQuestionRequest }
   | { type: 'delta'; requestId: string; text: string }
-  | { type: 'done'; requestId: string; providerState?: ProviderState }
+  | { type: 'done'; requestId: string; providerState?: PiSessionState }
   | { type: 'cancelled'; requestId: string }
   | { type: 'error'; requestId: string; error: string };

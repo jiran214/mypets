@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Wimi Pet 是一个 Tauri 2 桌面宠物应用——浮动、透明、置顶的精灵动画角色，支持多桌宠同时显示，内置 AI 聊天功能（Pi provider）。前端用 TypeScript + Vite + React + Canvas 2D 渲染，后端用 Rust 处理文件系统和 AI 调度。
 
-@./docs/CONTEXT.md
+领域词汇表和有界上下文详见 [docs/CONTEXT.md](docs/CONTEXT.md)。
 
 ## 常用命令
 
@@ -69,6 +69,7 @@ wimipet tools countdown  # 终端倒计时
 所有文件系统访问在 Rust 侧完成，前端只接收元数据和 base64 图片，这是刻意的安全边界。
 
 ### AI 聊天流水线
+pi agent sdk doc：https://pi.dev/docs/latest/sdk
 
 发送消息的完整路径：
 

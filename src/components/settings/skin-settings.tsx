@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
 import { FolderOpen } from 'lucide-react';
 import type { AiSettings } from '@/ai/ai-types';
 import type { ReadyPetWorkspace } from '@/workspaces';
+import type { AnimationState } from '@/types';
 import { loadSpritesheet } from '@/pet/pet-loader';
 import { ANIMATIONS, CELL_W, CELL_H } from '@/pet/animation-data';
 import { Button } from '@/components/ui/button';
@@ -15,8 +16,27 @@ import {
 } from '@/components/ui/field';
 import { Switch } from '@/components/ui/switch';
 
-const PREVIEW_DISPLAY_W = 192;
-const PREVIEW_DISPLAY_H = 208;
+const PREVIEW_W = 192;
+const PREVIEW_H = 208;
+const GRID_ITEM_W = 80;
+const GRID_ITEM_H = 88;
+
+const ANIMATION_LABELS: Record<AnimationState, string> = {
+  'idle': '待机',
+  'running-right': '向右跑',
+  'running-left': '向左跑',
+  'waving': '招手',
+  'jumping': '跳跃',
+  'failed': '失败',
+  'waiting': '等待',
+  'running': '奔跑',
+  'review': '检视',
+};
+
+const ALL_STATES: AnimationState[] = [
+  'idle', 'running-right', 'running-left', 'waving',
+  'jumping', 'failed', 'waiting', 'running', 'review',
+];
 
 const spritesheetCache = new Map<string, Promise<HTMLImageElement>>();
 
@@ -37,18 +57,18 @@ function loadSpritesheetImage(spritesheetPath: string): Promise<HTMLImageElement
   return promise;
 }
 
-function drawPreview(canvas: HTMLCanvasElement, image: HTMLImageElement, frame: number): void {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-
-  const def = ANIMATIONS.idle;
-  canvas.width = PREVIEW_DISPLAY_W;
-  canvas.height = PREVIEW_DISPLAY_H;
-
-  ctx.clearRect(0, 0, PREVIEW_DISPLAY_W, PREVIEW_DISPLAY_H);
+function drawFrame(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  state: AnimationState,
+  frame: number,
+  dw: number,
+  dh: number,
+): void {
+  const def = ANIMATIONS[state];
+  ctx.clearRect(0, 0, dw, dh);
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-
   ctx.drawImage(
     image,
     frame * CELL_W,
@@ -57,14 +77,24 @@ function drawPreview(canvas: HTMLCanvasElement, image: HTMLImageElement, frame: 
     CELL_H,
     0,
     0,
-    PREVIEW_DISPLAY_W,
-    PREVIEW_DISPLAY_H,
+    dw,
+    dh,
   );
 }
 
-function PetPreview({ workspace }: { workspace: ReadyPetWorkspace | null }): ReactNode {
+/** Left side: large canvas playing the selected animation */
+function MainPreview({
+  workspace,
+  image,
+  state,
+}: {
+  workspace: ReadyPetWorkspace;
+  image: HTMLImageElement;
+  state: AnimationState;
+}): ReactNode {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [error, setError] = useState('');
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   useEffect(() => {
     let disposed = false;
@@ -73,24 +103,10 @@ function PetPreview({ workspace }: { workspace: ReadyPetWorkspace | null }): Rea
     let elapsed = 0;
     let lastTimestamp = 0;
 
-    const cancel = (): void => {
-      if (animationId !== null) {
-        cancelAnimationFrame(animationId);
-        animationId = null;
-      }
-    };
-
-    if (!workspace) {
-      setError('');
-      return cancel;
-    }
-
-    const tick = (image: HTMLImageElement, timestamp: number): void => {
+    const tick = (timestamp: number): void => {
       if (disposed || !canvasRef.current) return;
-      const def = ANIMATIONS.idle;
-      if (lastTimestamp === 0) {
-        lastTimestamp = timestamp;
-      }
+      const def = ANIMATIONS[stateRef.current];
+      if (lastTimestamp === 0) lastTimestamp = timestamp;
       elapsed += timestamp - lastTimestamp;
       lastTimestamp = timestamp;
 
@@ -99,43 +115,93 @@ function PetPreview({ workspace }: { workspace: ReadyPetWorkspace | null }): Rea
         frame = (frame + 1) % def.frameCount;
       }
 
-      drawPreview(canvasRef.current, image, frame);
-      animationId = requestAnimationFrame((nextTimestamp) => tick(image, nextTimestamp));
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) drawFrame(ctx, image, stateRef.current, frame, PREVIEW_W, PREVIEW_H);
+      animationId = requestAnimationFrame(tick);
     };
 
-    setError('');
-    void loadSpritesheetImage(workspace.meta.spritesheetPath)
-      .then((image) => {
-        if (disposed || !canvasRef.current) return;
-        drawPreview(canvasRef.current, image, 0);
-        animationId = requestAnimationFrame((timestamp) => tick(image, timestamp));
-      })
-      .catch((loadError) => {
-        setError(loadError instanceof Error ? loadError.message : String(loadError));
-      });
+    const ctx = canvasRef.current?.getContext('2d');
+    if (ctx) drawFrame(ctx, image, state, 0, PREVIEW_W, PREVIEW_H);
+    animationId = requestAnimationFrame(tick);
 
     return () => {
       disposed = true;
-      cancel();
+      if (animationId !== null) cancelAnimationFrame(animationId);
     };
-  }, [workspace]);
-
-  if (!workspace) {
-    return <div className="text-sm text-muted-foreground">请选择一个可用桌宠</div>;
-  }
-
-  if (error) {
-    return <div className="text-sm text-destructive">{error}</div>;
-  }
+  }, [workspace, image]);
 
   return (
     <canvas
       ref={canvasRef}
       className="bg-transparent"
-      width={PREVIEW_DISPLAY_W}
-      height={PREVIEW_DISPLAY_H}
-      aria-label={`${workspace.meta.displayName} 预览`}
+      width={PREVIEW_W}
+      height={PREVIEW_H}
     />
+  );
+}
+
+/** Right side grid item: small canvas looping a single animation */
+function AnimationGridItem({
+  image,
+  state,
+  selected,
+  onSelect,
+}: {
+  image: HTMLImageElement;
+  state: AnimationState;
+  selected: boolean;
+  onSelect: () => void;
+}): ReactNode {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    let animationId: number | null = null;
+    let frame = 0;
+    let elapsed = 0;
+    let lastTimestamp = 0;
+
+    const tick = (timestamp: number): void => {
+      if (disposed || !canvasRef.current) return;
+      const def = ANIMATIONS[state];
+      if (lastTimestamp === 0) lastTimestamp = timestamp;
+      elapsed += timestamp - lastTimestamp;
+      lastTimestamp = timestamp;
+
+      while (elapsed >= def.durations[frame]) {
+        elapsed -= def.durations[frame];
+        frame = (frame + 1) % def.frameCount;
+      }
+
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) drawFrame(ctx, image, state, frame, GRID_ITEM_W, GRID_ITEM_H);
+      animationId = requestAnimationFrame(tick);
+    };
+
+    const ctx = canvasRef.current?.getContext('2d');
+    if (ctx) drawFrame(ctx, image, state, 0, GRID_ITEM_W, GRID_ITEM_H);
+    animationId = requestAnimationFrame(tick);
+
+    return () => {
+      disposed = true;
+      if (animationId !== null) cancelAnimationFrame(animationId);
+    };
+  }, [image, state]);
+
+  return (
+    <button
+      type="button"
+      className={`flex flex-col items-center gap-1 rounded-lg border p-2 transition-colors cursor-pointer hover:bg-accent ${selected ? 'border-primary bg-accent' : 'border-transparent'}`}
+      onClick={onSelect}
+    >
+      <canvas
+        ref={canvasRef}
+        className="bg-transparent"
+        width={GRID_ITEM_W}
+        height={GRID_ITEM_H}
+      />
+      <span className="text-xs text-muted-foreground">{ANIMATION_LABELS[state]}</span>
+    </button>
   );
 }
 
@@ -152,12 +218,69 @@ export function SkinSettings({
 }): ReactNode {
   const disabled = !readyWorkspace;
   const scale = settingsDraft.petScale;
+  const [selectedState, setSelectedState] = useState<AnimationState>('idle');
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    if (!readyWorkspace) {
+      setImage(null);
+      setLoadError('');
+      return;
+    }
+    let disposed = false;
+    loadSpritesheetImage(readyWorkspace.meta.spritesheetPath)
+      .then((img) => {
+        if (!disposed) setImage(img);
+      })
+      .catch((err) => {
+        if (!disposed) setLoadError(err instanceof Error ? err.message : String(err));
+      });
+    return () => { disposed = true; };
+  }, [readyWorkspace]);
+
+  const handleSelect = useCallback((state: AnimationState) => {
+    setSelectedState(state);
+  }, []);
 
   return (
     <div className="flex min-h-full flex-col gap-4">
-      <div className="flex min-h-[360px] items-center justify-center rounded-lg border bg-background overflow-hidden">
-        <div style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}>
-          <PetPreview workspace={readyWorkspace} />
+      {/* Preview area: left-right layout */}
+      <div className="flex min-h-90 gap-4">
+        {/* Left: main preview */}
+        <div className="flex flex-1 items-center justify-center rounded-lg border bg-background overflow-hidden">
+          {!readyWorkspace ? (
+            <span className="text-sm text-muted-foreground">请选择一个可用桌宠</span>
+          ) : loadError ? (
+            <span className="text-sm text-destructive">{loadError}</span>
+          ) : !image ? (
+            <span className="text-sm text-muted-foreground">加载中...</span>
+          ) : (
+            <div style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}>
+              <MainPreview workspace={readyWorkspace} image={image} state={selectedState} />
+            </div>
+          )}
+        </div>
+
+        {/* Right: animation grid */}
+        <div className="w-75 shrink-0 rounded-lg border bg-background overflow-auto p-3">
+          {!image ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              加载中...
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              {ALL_STATES.map((s) => (
+                <AnimationGridItem
+                  key={s}
+                  image={image}
+                  state={s}
+                  selected={s === selectedState}
+                  onSelect={() => handleSelect(s)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

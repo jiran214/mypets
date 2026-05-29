@@ -1,10 +1,9 @@
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::Write,
     sync::{Arc, Mutex},
     thread,
 };
 
-use encoding_rs::GBK;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
@@ -19,7 +18,6 @@ const STDERR_BUFFER_LIMIT: usize = 64 * 1024; // 64KB
 pub(crate) struct RunnerConfig {
     pub request_id: String,
     pub conversation_id: String,
-    pub provider_id: String,
     pub paths: StoragePaths,
     pub helper: std::path::PathBuf,
     pub workspace_dir: std::path::PathBuf,
@@ -30,7 +28,6 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
     let RunnerConfig {
         request_id,
         conversation_id,
-        provider_id,
         paths,
         helper,
         workspace_dir,
@@ -41,7 +38,7 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
         &paths,
         LogLevel::Info,
         "runner",
-        &format!("Starting {} request {}", provider_id, request_id),
+        &format!("Starting Pi request {}", request_id),
     );
 
     let mut child = match std::process::Command::new("node")
@@ -112,7 +109,8 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
         let mut stderr_bytes = Vec::new();
         let mut reader = std::io::BufReader::new(stderr);
         let _ = reader.read_to_end(&mut stderr_bytes);
-        let (decoded, _, _) = GBK.decode(&stderr_bytes);
+        // Node.js stderr 默认是 UTF-8，使用 UTF-8 解码
+        let decoded = String::from_utf8_lossy(&stderr_bytes);
         for line in decoded.lines() {
             if let Ok(mut buffer) = stderr_for_thread.lock() {
                 buffer.push_str(line);
@@ -135,8 +133,20 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
     });
 
     thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            let Ok(event) = serde_json::from_str::<Value>(&line) else {
+        use std::io::{BufRead, BufReader};
+        // 逐行实时读取 stdout，保持 stream 效果
+        let reader = BufReader::new(stdout);
+        for line_result in reader.lines() {
+            let line = match line_result {
+                Ok(l) => l,
+                Err(_) => break,
+            };
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let Ok(event) = serde_json::from_str::<Value>(line) else {
                 append_ai_log(&paths_for_log, LogLevel::Warn, "runner", &format!("non-json stdout: {line}"));
                 continue;
             };
@@ -146,7 +156,6 @@ pub(crate) fn spawn_node_runner(app: &AppHandle, config: RunnerConfig) -> Result
                     let _ = super::ai_storage::write_session_meta(
                         &paths_for_meta,
                         &conversation_id,
-                        &provider_id,
                         provider_state.clone(),
                         "AI conversation",
                         "",

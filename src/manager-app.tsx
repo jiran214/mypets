@@ -968,14 +968,12 @@ function PetAvatar({ workspace }: { workspace: PetWorkspace }): ReactNode {
 
 function defaultAiSettings(): AiSettings {
   return {
-    providerId: 'pi',
     petAlwaysOnTop: false,
     petGravityEnabled: true,
     petScale: 1,
     petResizeEnabled: false,
     displayName: '',
     pi: {
-      pathToPiExecutable: '',
       provider: 'openai',
       model: '',
       thinkingLevel: 'medium',
@@ -995,7 +993,6 @@ function defaultAiSettings(): AiSettings {
 function normalizeSettings(settings: AiSettings | null | undefined): AiSettings {
   const defaults = defaultAiSettings();
   return {
-    providerId: settings?.providerId ?? defaults.providerId,
     petAlwaysOnTop: settings?.petAlwaysOnTop ?? defaults.petAlwaysOnTop,
     petGravityEnabled: settings?.petGravityEnabled ?? defaults.petGravityEnabled,
     petScale: settings?.petScale ?? defaults.petScale,

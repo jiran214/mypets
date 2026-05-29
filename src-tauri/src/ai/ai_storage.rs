@@ -7,6 +7,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use chrono::Local;
+
 use super::ai_models::AiSessionSummary;
 use super::ai_skills::home_dir;
 use super::AiPaths;
@@ -123,7 +125,8 @@ impl std::fmt::Display for LogLevel {
 static LOG_WRITER: Mutex<Option<(PathBuf, BufWriter<std::fs::File>)>> = Mutex::new(None);
 
 pub(crate) fn append_ai_log(paths: &StoragePaths, level: LogLevel, module: &str, message: &str) {
-    let timestamp = now_ms();
+    let now = Local::now();
+    let timestamp = now.format("%Y-%m-%d %H:%M:%S").to_string();
     let line = format!("[{timestamp}] [{level}] [{module}] {message}\n");
 
     if let Ok(mut guard) = LOG_WRITER.lock() {
@@ -224,7 +227,6 @@ pub(crate) fn session_meta_path(paths: &StoragePaths, conversation_id: &str) -> 
 pub(crate) fn write_session_meta(
     paths: &StoragePaths,
     conversation_id: &str,
-    provider_id: &str,
     provider_state: serde_json::Value,
     prompt: &str,
     title: &str,
@@ -269,7 +271,6 @@ pub(crate) fn write_session_meta(
 
     let meta = AiSessionSummary {
         id: conversation_id.to_string(),
-        provider_id: provider_id.to_string(),
         provider_state,
         title: meta_title,
         created_at,

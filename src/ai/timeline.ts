@@ -316,11 +316,21 @@ function stringFromUnknown(value: unknown): string | undefined {
 }
 
 function parseJson(text: string): unknown {
-  const trimmed = text.trim();
-  if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) return undefined;
   try {
-    return JSON.parse(trimmed);
-  } catch {
+    const trimmed = text.trim();
+    if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) return undefined;
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return undefined;
+    }
+  } catch (error) {
+    // 记录 startsWith 错误的详细信息
+    console.error('[timeline] parseJson error:', error, {
+      textType: typeof text,
+      textValue: text,
+      textLength: text?.length,
+    });
     return undefined;
   }
 }

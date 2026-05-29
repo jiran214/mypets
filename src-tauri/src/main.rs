@@ -50,14 +50,5 @@ fn main() {
         original_hook(info);
     }));
 
-    // 设置 Ctrl+C 信号处理
-    ctrlc::set_handler(move || {
-        wimipet_lib::terminate_all_ai_processes();
-        std::process::exit(0);
-    })
-    .expect("Error setting Ctrl-C handler");
-
     wimipet_lib::run();
-    // 正常退出时也清理
-    wimipet_lib::terminate_all_ai_processes();
 }

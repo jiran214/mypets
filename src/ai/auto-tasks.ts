@@ -3,7 +3,6 @@ import {
   answerAiToolQuestion,
   cancelAiChatMessage,
   listenToAiChatEvents,
-  loadAiState,
   sendAiChatMessage,
 } from './ai-api';
 import {
@@ -14,7 +13,7 @@ import type {
   AiChatEvent,
   ChatMessage,
   Conversation,
-  ProviderState,
+  PiSessionState,
   ToolQuestionAnswerPayload,
   ToolQuestionPartData,
   ToolQuestionRequest,
@@ -185,12 +184,10 @@ export async function runAutoTaskConversation(
   workspaceFolder: string,
   task: AutoTask,
 ): Promise<AutoTaskRunResult> {
-  const aiState = await loadAiState(workspaceFolder);
-  const providerId = aiState.settings.providerId;
   const title = autoTaskConversationTitle(task.name);
   const requestId = crypto.randomUUID();
   const conversationId = `auto-task-${safeIdPart(task.id)}-${Date.now()}`;
-  const providerState: ProviderState = {};
+  const providerState: PiSessionState = {};
   const assistant: ChatMessage = {
     id: crypto.randomUUID(),
     role: 'assistant',
@@ -199,7 +196,6 @@ export async function runAutoTaskConversation(
   };
   const conversation: Conversation = {
     id: conversationId,
-    providerId,
     providerState,
     messages: [
       {
@@ -307,7 +303,6 @@ export async function runAutoTaskConversation(
       requestId,
       conversationId,
       workspaceFolder,
-      providerId,
       title,
       autoTaskId: task.id,
       autoTaskName: task.name,

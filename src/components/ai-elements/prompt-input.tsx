@@ -567,7 +567,19 @@ export const PromptInput = ({
         if (pattern.endsWith("/*")) {
           // e.g: image/* -> image/
           const prefix = pattern.slice(0, -1);
-          return f.type.startsWith(prefix);
+          try {
+            return f.type.startsWith(prefix);
+          } catch (error) {
+            // 记录 startsWith 错误的详细信息
+            console.error('[prompt-input] matchesAccept error:', error, {
+              fileName: f.name,
+              fileType: f.type,
+              fileTypeType: typeof f.type,
+              prefix,
+              pattern,
+            });
+            return false;
+          }
         }
         return f.type === pattern;
       });

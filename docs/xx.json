@@ -1,0 +1,10 @@
+{
+  "model": { "provider": "xiaomi-token-plan-cn" },
+  "thinkingLevel": "low",
+  "workspaceDir": "C:\\Users\\jiran\\Downloads\\新建文件夹\\mimihood",
+  "agentDir": "C:\\Users\\jiran\\.pi\\agent",
+  "useNoSession": false,
+  "piSessionFile": null,
+  "autoCompactionEnabled": true,
+  "autoRetryEnabled": true
+}

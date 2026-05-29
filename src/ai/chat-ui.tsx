@@ -118,7 +118,7 @@ import {
   buildChainOfThought,
   type ChainOfThoughtModel,
   type TimelineItem,
-} from './agent-timeline';
+} from './timeline';
 const roots = new WeakMap<HTMLElement, Root>();
 
 export interface ChatBubbleController {
