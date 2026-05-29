@@ -55,6 +55,7 @@ import {
   ChainOfThoughtContent,
   ChainOfThoughtStep,
 } from '@/components/ai-elements/chain-of-thought';
+import { Task, TaskTrigger, TaskContent } from '@/components/ai-elements/task';
 import { CodeBlock } from '@/components/ai-elements/code-block';
 import {
   PromptInput,
@@ -878,68 +879,62 @@ function ChainOfThoughtView({
   streaming: boolean;
 }): ReactNode {
   return (
-    <ChainOfThought className="mb-2 px-0" defaultOpen={true}>
-      <ChainOfThoughtHeader>
-        <div className="flex flex-1 items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            {streaming ? (
-              <Shimmer duration={1} className="font-medium">思考中</Shimmer>
-            ) : (
-              <span className="font-medium">已思考</span>
-            )}
-          </div>
-        </div>
-      </ChainOfThoughtHeader>
-      {chain.items.length > 0 && (
-        <ChainOfThoughtContent>
-          <div className="space-y-2 pl-0.5">
-            {chain.items.map((item) => {
-              const description = item.description || item.path;
-              const isPartial = streaming && item.traces.some((t) => t.partial);
-              return (
-                <ChainOfThoughtStep
-                  key={item.id}
-                  icon={timelineItemIcon(item.kind)}
-                  label={
-                    <Collapsible className="group" defaultOpen={false}>
-                      <CollapsibleTrigger asChild>
-                        <div className="flex min-w-0 cursor-pointer items-center gap-1.5 text-xs font-medium">
-                          <span className="shrink-0">{item.label}</span>
-                          {item.kind === 'read' && item.path ? (
-                            <PathInlineButton path={item.path} title={item.path} />
-                          ) : description ? (
-                            <span className="min-w-0 truncate text-foreground/80">{description}</span>
-                          ) : null}
-                          {isPartial && (
-                            <Badge variant="outline" className="shrink-0 rounded-full text-[10px]">
-                              运行中
-                            </Badge>
-                          )}
-                          <ChevronDown className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
-                        </div>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1">
-                        <div className="space-y-2 pt-2 text-xs">
-                          {(item.kind === 'bash' ? item.traces.slice(-1) : item.traces).map((trace, index) => (
-                            <TimelineTraceDetail
-                              key={`${trace.id}-${trace.phase}-${index}`}
-                              index={item.traces.length > 1 ? index + 1 : undefined}
-                              part={item.parts[index] ?? item.parts[0]}
-                              trace={trace}
-                            />
-                          ))}
-                        </div>
-                      </CollapsibleContent>
-                    </Collapsible>
-                  }
-                  status={isPartial ? 'active' : 'complete'}
-                />
-              );
-            })}
-          </div>
-        </ChainOfThoughtContent>
-      )}
-    </ChainOfThought>
+    <Task className="mb-2" defaultOpen={true}>
+      <TaskTrigger title="思考过程" />
+      <TaskContent>
+        <ChainOfThought className="px-0" defaultOpen={true}>
+          {chain.items.length > 0 && (
+            <ChainOfThoughtContent>
+              <div className="space-y-2 pl-0.5">
+                {chain.items.map((item) => {
+                  const description = item.description || item.path;
+                  const isPartial = streaming && item.traces.some((t) => t.partial);
+                  return (
+                    <ChainOfThoughtStep
+                      key={item.id}
+                      icon={timelineItemIcon(item.kind)}
+                      label={
+                        <Collapsible className="group" defaultOpen={false}>
+                          <CollapsibleTrigger asChild>
+                            <div className="flex min-w-0 cursor-pointer items-center gap-1.5 text-xs font-medium">
+                              <span className="shrink-0">{item.label}</span>
+                              {item.kind === 'read' && item.path ? (
+                                <PathInlineButton path={item.path} title={item.path} />
+                              ) : description ? (
+                                <span className="min-w-0 truncate text-foreground/80">{description}</span>
+                              ) : null}
+                              {isPartial && (
+                                <Badge variant="outline" className="shrink-0 rounded-full text-[10px]">
+                                  运行中
+                                </Badge>
+                              )}
+                              <ChevronDown className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+                            </div>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1">
+                            <div className="space-y-2 pt-2 text-xs">
+                              {(item.kind === 'bash' ? item.traces.slice(-1) : item.traces).map((trace, index) => (
+                                <TimelineTraceDetail
+                                  key={`${trace.id}-${trace.phase}-${index}`}
+                                  index={item.traces.length > 1 ? index + 1 : undefined}
+                                  part={item.parts[index] ?? item.parts[0]}
+                                  trace={trace}
+                                />
+                              ))}
+                            </div>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      }
+                      status={isPartial ? 'active' : 'complete'}
+                    />
+                  );
+                })}
+              </div>
+            </ChainOfThoughtContent>
+          )}
+        </ChainOfThought>
+      </TaskContent>
+    </Task>
   );
 }
 
