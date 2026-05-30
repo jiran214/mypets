@@ -137,7 +137,7 @@ export function GeneralSettings({
                 <AlertDialogTitle>删除当前桌宠？</AlertDialogTitle>
                 <AlertDialogDescription>
                   {isReadyWorkspace(selectedWorkspace)
-                    ? `将把桌宠文件夹移入回收站：${selectedWorkspace.folder}`
+                    ? `将从应用中移除该桌宠（原文件夹不会被删除）：${selectedWorkspace.folder}`
                     : `将从列表移除该丢失资源：${selectedWorkspace?.folder ?? ''}`}
                 </AlertDialogDescription>
               </AlertDialogHeader>

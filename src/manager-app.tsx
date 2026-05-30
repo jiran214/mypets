@@ -51,7 +51,6 @@ import type { ChatRuntime } from '@/ai/chat-runtime';
 import { ChatPanel } from '@/ai/chat-ui';
 import type { AiSessionSummary, AiSettings, AiState } from '@/ai/ai-types';
 import {
-  deletePetWorkspace,
   loadPet,
   loadSpritesheet,
   openWorkspaceInFileManager,
@@ -202,7 +201,6 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
 
     try {
       if (isReadyWorkspace(workspace)) {
-        await deletePetWorkspace(workspace.folder);
         await hidePetWindow(workspace.folder).catch((error) => {
           console.warn('Failed to close deleted pet window:', error);
         });

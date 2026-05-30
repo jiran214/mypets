@@ -294,7 +294,7 @@ export function SkinSettings({
             <input
               id="pet-scale"
               type="range"
-              min={60}
+              min={50}
               max={200}
               step={1}
               value={Math.round(scale * 100)}

@@ -1,5 +1,5 @@
 const STORAGE_KEY = 'wimipet-pet-scales-v1';
-const DEFAULT_SCALE = 0.8;
+const DEFAULT_SCALE = 1;
 
 function readScales(): Record<string, number> {
   try {

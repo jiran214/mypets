@@ -1,5 +1,5 @@
 import { loadSpritesheet } from '@/pet/pet-loader';
-import { ANIMATIONS, CELL_W, CELL_H } from '@/pet/animation-data';
+import { ANIMATIONS, CELL_W, CELL_H, BASE_SCALE } from '@/pet/animation-data';
 import type { AnimationState } from './types';
 
 export class SpriteRenderer {
@@ -53,8 +53,8 @@ export class SpriteRenderer {
 
   getDisplaySize(): { width: number; height: number } {
     return {
-      width: this.trim.width,
-      height: this.trim.height,
+      width: Math.round(this.trim.width * BASE_SCALE),
+      height: Math.round(this.trim.height * BASE_SCALE),
     };
   }
 

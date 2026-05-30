@@ -4,11 +4,10 @@ import { PhysicalPosition, monitorFromPoint, primaryMonitor } from '@tauri-apps/
 import { loadAiState } from '@/ai/ai-api';
 import type { AiSettings } from '@/ai/ai-types';
 import { isReadyWorkspace, type PetWorkspace } from '@/workspaces';
+import { CELL_W, CELL_H } from './animation-data';
 import { loadPetPosition } from './pet-position';
 
 const PET_WINDOW_PREFIX = 'pet-';
-const INITIAL_WIDTH = 192;
-const INITIAL_HEIGHT = 208;
 type Position = { x: number; y: number };
 
 function hashFolder(folder: string): string {
@@ -29,8 +28,8 @@ async function fallbackPosition(folder: string): Promise<Position> {
   const screenHeight = monitor ? Math.round(monitor.size.height / scaleFactor) : 1080;
 
   return {
-    x: screenWidth - INITIAL_WIDTH - 20 - slot * 30,
-    y: screenHeight - INITIAL_HEIGHT - 90 - slot * 20,
+    x: screenWidth - CELL_W - 20 - slot * 30,
+    y: screenHeight - CELL_H - 90 - slot * 20,
   };
 }
 
@@ -75,8 +74,8 @@ export async function showPetWindow(workspace: PetWorkspace): Promise<void> {
     title: workspace.meta.displayName,
     x: position.x,
     y: position.y,
-    width: INITIAL_WIDTH,
-    height: INITIAL_HEIGHT,
+    width: CELL_W,
+    height: CELL_H,
     visible: false,
     focus: false,
     transparent: true,

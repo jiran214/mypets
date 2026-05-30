@@ -2,6 +2,7 @@ import type { AnimationState, AnimationDef } from '@/types';
 
 export const CELL_W = 192;
 export const CELL_H = 208;
+export const BASE_SCALE = 0.6;
 export const COLS = 8;
 export const ROWS = 9;
 

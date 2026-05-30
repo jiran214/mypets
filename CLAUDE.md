@@ -145,7 +145,7 @@ Rust 工具模块结构（`src-tauri/src/tools/`）：
 - 宠物位置持久化：通过 `pet-position.ts` 保存到 `localStorage`，窗口移动时 120ms 防抖写入
 - 左键拖拽：通过 `appWindow.setPosition()` 移动窗口（含 DPR 缩放补偿）
 - 右键菜单：通过 Tauri API 构建原生 OS 菜单（切换动画、设置、退出）
-- 宠物模式下可拖拽右下角 resize handle 缩放（0.6x–3x）
+- 宠物模式下可拖拽右下角 resize handle 缩放（0.5x–2x）
 
 ### 前端目录结构
 
