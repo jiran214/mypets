@@ -19,7 +19,6 @@ import type { PetMeta } from '@/types';
 interface PetSettingsEvent {
   folder: string;
   petGravityEnabled: boolean;
-  petStandingOnTop: boolean;
   petAlwaysOnTop: boolean;
   petScale: number;
   petResizeEnabled: boolean;
@@ -32,15 +31,10 @@ function setPetWindowChrome(): void {
   document.body.style.background = 'transparent';
 }
 
-function setupPetGravity(folder: string, canvas: HTMLCanvasElement, initialEnabled: boolean, initialStandingOnTop: boolean): void {
+function setupPetGravity(folder: string, canvas: HTMLCanvasElement, initialEnabled: boolean): void {
   const win = getCurrentWindow();
   let enabled = initialEnabled;
-  let standingOnTop = initialStandingOnTop;
   let animationFrame: number | null = null;
-
-  const updateFlip = (): void => {
-    canvas.style.transform = standingOnTop ? 'scaleY(-1)' : '';
-  };
 
   const stop = (): void => {
     if (animationFrame !== null) {
@@ -62,22 +56,12 @@ function setupPetGravity(folder: string, canvas: HTMLCanvasElement, initialEnabl
 
     const rect = canvas.getBoundingClientRect();
     const workArea = monitor?.workArea;
-
-    let targetY: number;
-    if (standingOnTop) {
-      const ceiling = workArea ? workArea.position.y : position.y;
-      const petTopOffset = Math.round(rect.top * scaleFactor);
-      targetY = ceiling - petTopOffset;
-    } else {
-      const floor = workArea
-        ? workArea.position.y + workArea.size.height
-        : position.y + Math.round(window.innerHeight * scaleFactor);
-      const petBottomOffset = Math.round((rect.top + rect.height) * scaleFactor);
-      targetY = floor - petBottomOffset;
-    }
-
-    const alreadyInPlace = standingOnTop ? position.y <= targetY : position.y >= targetY;
-    if (alreadyInPlace) {
+    const floor = workArea
+      ? workArea.position.y + workArea.size.height
+      : position.y + Math.round(window.innerHeight * scaleFactor);
+    const petBottomOffset = Math.round((rect.top + rect.height) * scaleFactor);
+    const targetY = floor - petBottomOffset;
+    if (position.y >= targetY) {
       await win.setPosition(new PhysicalPosition(position.x, targetY));
       return;
     }
@@ -85,9 +69,6 @@ function setupPetGravity(folder: string, canvas: HTMLCanvasElement, initialEnabl
     let y = position.y;
     let velocity = 0;
     let lastTimestamp = 0;
-    const direction = standingOnTop ? -1 : 1;
-    const accel = direction * 2800;
-    const maxVel = direction * 2400;
 
     const tick = (timestamp: number): void => {
       if (!enabled) {
@@ -97,12 +78,11 @@ function setupPetGravity(folder: string, canvas: HTMLCanvasElement, initialEnabl
 
       const dt = lastTimestamp === 0 ? 0 : Math.min((timestamp - lastTimestamp) / 1000, 0.034);
       lastTimestamp = timestamp;
-      velocity = Math.max(Math.min(velocity + accel * dt, Math.max(maxVel, 0)), Math.min(maxVel, 0));
-      y = standingOnTop ? Math.max(y + velocity * dt, targetY) : Math.min(y + velocity * dt, targetY);
+      velocity = Math.min(velocity + 2800 * dt, 2400);
+      y = Math.min(y + velocity * dt, targetY);
       void win.setPosition(new PhysicalPosition(position.x, Math.round(y)));
 
-      const reached = standingOnTop ? y <= targetY : y >= targetY;
-      if (reached) {
+      if (y >= targetY) {
         animationFrame = null;
         return;
       }
@@ -128,8 +108,6 @@ function setupPetGravity(folder: string, canvas: HTMLCanvasElement, initialEnabl
   void listen<PetSettingsEvent>('pet-settings-changed', (event) => {
     if (event.payload.folder !== folder) return;
     enabled = event.payload.petGravityEnabled;
-    standingOnTop = event.payload.petStandingOnTop;
-    updateFlip();
     void win.setAlwaysOnTop(event.payload.petAlwaysOnTop).catch(() => {});
     if (enabled) {
       scheduleSettle();
@@ -140,7 +118,6 @@ function setupPetGravity(folder: string, canvas: HTMLCanvasElement, initialEnabl
     console.warn('Failed to listen to pet settings:', error);
   });
 
-  updateFlip();
   scheduleSettle();
 }
 
@@ -266,7 +243,7 @@ export async function initPetWindow(folder: string): Promise<void> {
   await win.setResizable(false);
   setupPositionPersistence(folder, canvas);
   await win.show();
-  setupPetGravity(folder, canvas, initialSettings?.petGravityEnabled ?? true, initialSettings?.petStandingOnTop ?? false);
+  setupPetGravity(folder, canvas, initialSettings?.petGravityEnabled ?? true);
 
   // Listen for settings changes (scale, resize handle)
   void listen<PetSettingsEvent>('pet-settings-changed', (event) => {

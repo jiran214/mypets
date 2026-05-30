@@ -103,7 +103,7 @@ export async function setPetWindowTitle(folder: string, title: string): Promise<
   }
 }
 
-export async function applyPetWindowSettings(folder: string, settings: Pick<AiSettings, 'petAlwaysOnTop' | 'petGravityEnabled' | 'petStandingOnTop' | 'petScale' | 'petResizeEnabled'>): Promise<void> {
+export async function applyPetWindowSettings(folder: string, settings: Pick<AiSettings, 'petAlwaysOnTop' | 'petGravityEnabled' | 'petScale' | 'petResizeEnabled'>): Promise<void> {
   const existing = await WebviewWindow.getByLabel(petWindowLabel(folder));
   if (existing) {
     await existing.setAlwaysOnTop(settings.petAlwaysOnTop).catch(() => {});
@@ -112,7 +112,6 @@ export async function applyPetWindowSettings(folder: string, settings: Pick<AiSe
     folder,
     petAlwaysOnTop: settings.petAlwaysOnTop,
     petGravityEnabled: settings.petGravityEnabled,
-    petStandingOnTop: settings.petStandingOnTop,
     petScale: settings.petScale,
     petResizeEnabled: settings.petResizeEnabled,
   });
