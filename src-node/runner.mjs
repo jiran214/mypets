@@ -238,6 +238,8 @@ function traceKindFromToolName(name) {
   const normalized = String(name || '').toLowerCase();
   if (normalized === 'bash' || normalized === 'commandexecution' || normalized === 'command_execution') return 'bash';
   if (normalized === 'read') return 'read';
+  if (normalized === 'edit') return 'edit';
+  if (normalized === 'write') return 'write';
   if (String(name || '').startsWith('mcp__') || normalized.includes('mcp')) return 'mcp';
   if (normalized.includes('skill')) return 'skill';
   return 'tool';
@@ -246,6 +248,8 @@ function traceKindFromToolName(name) {
 function traceLabel(kind) {
   if (kind === 'bash') return 'Bash';
   if (kind === 'read') return 'Read';
+  if (kind === 'edit') return 'Edit';
+  if (kind === 'write') return 'Write';
   if (kind === 'mcp') return 'MCP';
   if (kind === 'skill') return 'Skill';
   if (kind === 'plan') return '计划';
@@ -277,7 +281,7 @@ function stringField(value, keys) {
 
 function tracePath(kind, payload, options) {
   if (options.path) return options.path;
-  if (kind === 'read') {
+  if (kind === 'read' || kind === 'edit' || kind === 'write') {
     return stringField(payload, ['path', 'filePath', 'file_path', 'filename']);
   }
   return stringField(payload, ['path', 'filePath', 'file_path']);
@@ -286,7 +290,7 @@ function tracePath(kind, payload, options) {
 function traceDescription(toolName, kind, payload, options) {
   if (options.description) return options.description;
   if (kind === 'bash') return stringField(payload, ['description', 'command']) || (typeof payload === 'string' ? payload : '');
-  if (kind === 'read') return tracePath(kind, payload, options);
+  if (kind === 'read' || kind === 'edit' || kind === 'write') return tracePath(kind, payload, options);
   if (kind === 'mcp') return mcpDescription(toolName) || String(toolName || '');
   return String(toolName || '');
 }

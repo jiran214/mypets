@@ -25,6 +25,7 @@ export interface PiProviderAuth {
 export interface AiSettings {
   petAlwaysOnTop: boolean;
   petGravityEnabled: boolean;
+  petStandingOnTop: boolean;
   petScale: number;
   petResizeEnabled: boolean;
   displayName: string;
@@ -69,7 +70,7 @@ export interface ChatMessage {
 export type ChatPartKind = 'text' | 'thinking' | 'plan' | 'tool' | 'mcp' | 'skill' | 'path' | 'attachment' | 'status' | 'question';
 
 export type ToolTracePhase = 'input' | 'output' | 'update' | 'status';
-export type ToolTraceKind = 'bash' | 'read' | 'mcp' | 'tool' | 'skill' | 'plan' | 'status';
+export type ToolTraceKind = 'bash' | 'read' | 'edit' | 'write' | 'mcp' | 'tool' | 'skill' | 'plan' | 'status';
 
 export interface ToolTrace {
   id: string;

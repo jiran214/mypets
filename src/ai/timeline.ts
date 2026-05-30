@@ -146,7 +146,7 @@ function legacyToolTrace(part: ChatMessagePart): ToolTrace | null {
   const toolName = legacyToolName(rawTitle);
   const kind = legacyTraceKind(part.kind, toolName, rawTitle);
   const label = labelForTraceKind(kind);
-  const path = kind === 'read'
+  const path = (kind === 'read' || kind === 'edit' || kind === 'write')
     ? stringFromObject(input, ['path', 'filePath', 'file_path']) || part.text.trim()
     : undefined;
   const description = legacyDescription(kind, rawTitle, part.text, input, path);
@@ -168,6 +168,8 @@ function normalizeTraceKind(kind: ToolTraceKind | undefined, fallback: ChatPartK
   if (
     kind === 'bash'
     || kind === 'read'
+    || kind === 'edit'
+    || kind === 'write'
     || kind === 'mcp'
     || kind === 'tool'
     || kind === 'skill'
@@ -198,6 +200,8 @@ function legacyTraceKind(kind: ChatPartKind, toolName: string, title: string): T
   if (kind === 'plan') return 'plan';
   if (kind === 'status') return 'status';
   if (kind === 'path' || normalized.includes('read')) return 'read';
+  if (normalized.includes('edit')) return 'edit';
+  if (normalized.includes('write')) return 'write';
   if (normalized.includes('bash') || normalized.includes('commandexecution') || title === '命令执行') return 'bash';
   return 'tool';
 }
@@ -224,6 +228,12 @@ function legacyDescription(
   if (kind === 'read') {
     return path || title;
   }
+  if (kind === 'edit') {
+    return path || stringFromObject(input, ['path', 'filePath', 'file_path']) || title;
+  }
+  if (kind === 'write') {
+    return path || stringFromObject(input, ['path', 'filePath', 'file_path']) || title;
+  }
   if (kind === 'mcp') {
     return title.replace(/^MCP\s+/iu, '').trim() || undefined;
   }
@@ -239,6 +249,8 @@ function legacyDescription(
 function displayLabelForTrace(trace: ToolTrace): string {
   if (trace.kind === 'bash') return 'Bash';
   if (trace.kind === 'read') return 'Read';
+  if (trace.kind === 'edit') return 'Edit';
+  if (trace.kind === 'write') return 'Write';
   if (trace.kind === 'mcp') return 'MCP';
   if (trace.kind === 'plan') return '计划';
   if (trace.kind === 'status') return trace.label || '状态';
@@ -246,8 +258,10 @@ function displayLabelForTrace(trace: ToolTrace): string {
 }
 
 function labelForTraceKind(kind: ToolTraceKind): string {
-  if (kind === 'bash') return 'Bash';
+  if (kind === 'bash') return '执行命令';
   if (kind === 'read') return 'Read';
+  if (kind === 'edit') return 'Edit';
+  if (kind === 'write') return 'Write';
   if (kind === 'mcp') return 'MCP';
   if (kind === 'skill') return 'Skill';
   if (kind === 'plan') return '计划';
@@ -258,6 +272,8 @@ function labelForTraceKind(kind: ToolTraceKind): string {
 function groupingName(trace: ToolTrace): string {
   if (trace.kind === 'bash') return 'Bash';
   if (trace.kind === 'read') return 'Read';
+  if (trace.kind === 'edit') return 'Edit';
+  if (trace.kind === 'write') return 'Write';
   if (trace.kind === 'mcp') return trace.name || trace.description || 'MCP';
   return trace.name || trace.label || trace.kind;
 }
@@ -265,6 +281,8 @@ function groupingName(trace: ToolTrace): string {
 function defaultTraceName(kind: ToolTraceKind, toolName: string): string {
   if (kind === 'bash') return 'Bash';
   if (kind === 'read') return 'Read';
+  if (kind === 'edit') return 'Edit';
+  if (kind === 'write') return 'Write';
   if (kind === 'mcp') return toolName || 'MCP';
   return toolName || kind;
 }
@@ -274,6 +292,12 @@ function descriptionFromTrace(trace: Partial<ToolTrace>): string | undefined {
     return stringFromObject(trace.input, ['description', 'command']) || stringFromUnknown(trace.input);
   }
   if (trace.kind === 'read') {
+    return trace.path || stringFromObject(trace.input, ['path', 'filePath', 'file_path']);
+  }
+  if (trace.kind === 'edit') {
+    return trace.path || stringFromObject(trace.input, ['path', 'filePath', 'file_path']);
+  }
+  if (trace.kind === 'write') {
     return trace.path || stringFromObject(trace.input, ['path', 'filePath', 'file_path']);
   }
   if (trace.kind === 'mcp') {

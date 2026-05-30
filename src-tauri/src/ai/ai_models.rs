@@ -37,6 +37,8 @@ pub struct AiSettings {
     pub pet_always_on_top: bool,
     #[serde(default = "default_pet_gravity_enabled")]
     pub pet_gravity_enabled: bool,
+    #[serde(default)]
+    pub pet_standing_on_top: bool,
     #[serde(default = "default_pet_scale")]
     pub pet_scale: f64,
     #[serde(default)]
@@ -207,6 +209,7 @@ impl Default for AiSettings {
         Self {
             pet_always_on_top: false,
             pet_gravity_enabled: default_pet_gravity_enabled(),
+            pet_standing_on_top: false,
             pet_scale: default_pet_scale(),
             pet_resize_enabled: false,
             display_name: String::new(),

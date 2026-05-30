@@ -968,6 +968,7 @@ function defaultAiSettings(): AiSettings {
   return {
     petAlwaysOnTop: false,
     petGravityEnabled: true,
+    petStandingOnTop: false,
     petScale: 1,
     petResizeEnabled: false,
     displayName: '',
@@ -993,6 +994,7 @@ function normalizeSettings(settings: AiSettings | null | undefined): AiSettings 
   return {
     petAlwaysOnTop: settings?.petAlwaysOnTop ?? defaults.petAlwaysOnTop,
     petGravityEnabled: settings?.petGravityEnabled ?? defaults.petGravityEnabled,
+    petStandingOnTop: settings?.petStandingOnTop ?? defaults.petStandingOnTop,
     petScale: settings?.petScale ?? defaults.petScale,
     petResizeEnabled: settings?.petResizeEnabled ?? defaults.petResizeEnabled,
     pi: {

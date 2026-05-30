@@ -100,6 +100,20 @@ export function GeneralSettings({
                 <FieldDescription>开启后桌宠会自由落体并停在任务栏上方。</FieldDescription>
               </FieldContent>
             </Field>
+
+            <Field orientation="horizontal" data-disabled={disabled} className="rounded-lg border bg-background p-3">
+              <Switch
+                id="pet-standing-on-top"
+                disabled={disabled}
+                checked={settingsDraft.petStandingOnTop}
+                onCheckedChange={(checked) => onSettingsChange({ ...settingsDraft, petStandingOnTop: checked })}
+                aria-label="站立在顶部"
+              />
+              <FieldContent>
+                <FieldLabel htmlFor="pet-standing-on-top">站立在顶部</FieldLabel>
+                <FieldDescription>开启后桌宠会倒立站在窗口顶部。</FieldDescription>
+              </FieldContent>
+            </Field>
           </div>
 
           <Field data-disabled={disabled}>

@@ -135,8 +135,8 @@ export const ChainOfThoughtStep = memo(
     >
       {iconProp !== null && (
         <div className="relative mt-0.5">
-          {createElement(iconProp, { className: "size-4" })}
-          <div className="absolute top-7 bottom-0 left-1/2 -mx-px w-px bg-border" />
+          {createElement(iconProp, { className: "size-3" })}
+          <div className="absolute top-5 bottom-0 left-1/2 -mx-px w-px bg-border" />
         </div>
       )}
       <div className="flex-1 space-y-2 overflow-hidden">

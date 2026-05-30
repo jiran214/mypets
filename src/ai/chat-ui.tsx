@@ -1,8 +1,9 @@
 import { getCurrentWindow, LogicalSize, PhysicalPosition } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import { createRoot, type Root } from 'react-dom/client';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { hasTauriRuntime, safeCurrentWindow } from '@/lib/tauri-utils';
+import { useCollapseScrollPreservation } from '@/lib/use-collapse-scroll-preservation';
 import { getToolQuestionData } from '@/lib/ai-utils';
 import {
   Check,
@@ -12,12 +13,14 @@ import {
   CircleQuestionMark,
   Clock,
   FileIcon,
+  FilePenLine,
   FileText,
   FolderOpen,
   History,
   ListTodo,
   MessageCircle,
   Paperclip,
+  PenLine,
   Plug,
   Plus,
   Search,
@@ -878,63 +881,125 @@ function ChainOfThoughtView({
   chain: ChainOfThoughtModel;
   streaming: boolean;
 }): ReactNode {
+  const taskRef = useRef<HTMLDivElement>(null);
+  const [taskOpen, setTaskOpen] = useState(true);
+  const setTaskOpenRef = useRef(setTaskOpen);
+  setTaskOpenRef.current = setTaskOpen;
+  const { onOpenChange: taskOnOpenChange } = useCollapseScrollPreservation(taskRef, setTaskOpenRef);
+
+  const chainRef = useRef<HTMLDivElement>(null);
+  const [chainOpen, setChainOpen] = useState(true);
+  const setChainOpenRef = useRef(setChainOpen);
+  setChainOpenRef.current = setChainOpen;
+  const { onOpenChange: chainOnOpenChange } = useCollapseScrollPreservation(chainRef, setChainOpenRef);
+
   return (
-    <Task className="mb-2" defaultOpen={true}>
-      <TaskTrigger title="思考过程" />
+    <Task ref={taskRef} className="mb-2" open={taskOpen} onOpenChange={taskOnOpenChange}>
+      <TaskTrigger title="思考过程" asChild>
+        <div className="flex w-full cursor-pointer items-center gap-2 text-sm transition-colors hover:text-foreground">
+          <Sparkles className="size-4" />
+          {streaming ? (
+            <Shimmer className="text-sm">思考中...</Shimmer>
+          ) : (
+            <span className="text-sm">已思考</span>
+          )}
+          <ChevronDown className="size-4 transition-transform group-data-[state=open]:rotate-180" />
+        </div>
+      </TaskTrigger>
       <TaskContent>
-        <ChainOfThought className="px-0" defaultOpen={true}>
+        <div ref={chainRef}>
+        <ChainOfThought className="px-0" open={chainOpen} onOpenChange={chainOnOpenChange}>
           {chain.items.length > 0 && (
             <ChainOfThoughtContent>
               <div className="space-y-2 pl-0.5">
-                {chain.items.map((item) => {
-                  const description = item.description || item.path;
-                  const isPartial = streaming && item.traces.some((t) => t.partial);
-                  return (
-                    <ChainOfThoughtStep
-                      key={item.id}
-                      icon={timelineItemIcon(item.kind)}
-                      label={
-                        <Collapsible className="group" defaultOpen={false}>
-                          <CollapsibleTrigger asChild>
-                            <div className="flex min-w-0 cursor-pointer items-center gap-1.5 text-xs font-medium">
-                              <span className="shrink-0">{item.label}</span>
-                              {item.kind === 'read' && item.path ? (
-                                <PathInlineButton path={item.path} title={item.path} />
-                              ) : description ? (
-                                <span className="min-w-0 truncate text-foreground/80">{description}</span>
-                              ) : null}
-                              {isPartial && (
-                                <Badge variant="outline" className="shrink-0 rounded-full text-[10px]">
-                                  运行中
-                                </Badge>
-                              )}
-                              <ChevronDown className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
-                            </div>
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1">
-                            <div className="space-y-2 pt-2 text-xs">
-                              {(item.kind === 'bash' ? item.traces.slice(-1) : item.traces).map((trace, index) => (
-                                <TimelineTraceDetail
-                                  key={`${trace.id}-${trace.phase}-${index}`}
-                                  index={item.traces.length > 1 ? index + 1 : undefined}
-                                  part={item.parts[index] ?? item.parts[0]}
-                                  trace={trace}
-                                />
-                              ))}
-                            </div>
-                          </CollapsibleContent>
-                        </Collapsible>
-                      }
-                      status={isPartial ? 'active' : 'complete'}
-                    />
-                  );
-                })}
+                {chain.items.map((item) => (
+                  <TimelineCollapsibleItem
+                    key={item.id}
+                    item={item}
+                    streaming={streaming}
+                  />
+                ))}
               </div>
             </ChainOfThoughtContent>
           )}
         </ChainOfThought>
+        </div>
       </TaskContent>
     </Task>
+  );
+}
+
+function TimelineCollapsibleItem({
+  item,
+  streaming,
+}: {
+  item: TimelineItem;
+  streaming: boolean;
+}): ReactNode {
+  const description = item.description || item.path;
+  const isPartial = streaming && item.traces.some((t) => t.partial);
+  const isHiddenTool = item.kind === 'read' || item.kind === 'write' || item.kind === 'edit';
+
+  const isThinking = item.kind === 'thinking';
+  const thinkingSnippet = isThinking ? getThinkingSnippet(item.traces[0]?.output) : undefined;
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const setIsOpenRef = useRef(setIsOpen);
+  setIsOpenRef.current = setIsOpen;
+  const { onOpenChange } = useCollapseScrollPreservation(containerRef, setIsOpenRef);
+
+  if (isHiddenTool) {
+    return (
+      <ChainOfThoughtStep
+        icon={timelineItemIcon(item.kind)}
+        label={
+          <div className="flex min-w-0 items-center gap-1.5 text-xs">
+            <span className="shrink-0 font-medium">{item.label}</span>
+            {item.path ? (
+              <PathInlineButton path={item.path} title={item.path} />
+            ) : description ? (
+              <span className="min-w-0 truncate text-muted-foreground">{description}</span>
+            ) : null}
+          </div>
+        }
+        status={isPartial ? 'active' : 'complete'}
+      />
+    );
+  }
+
+  return (
+    <ChainOfThoughtStep
+      icon={timelineItemIcon(item.kind)}
+      label={
+        <Collapsible ref={containerRef} className="group" open={isOpen} onOpenChange={onOpenChange}>
+          <CollapsibleTrigger asChild>
+            <div className="flex min-w-0 cursor-pointer items-center gap-1.5 text-xs">
+              <span className="shrink-0 font-medium">{item.label}</span>
+              {thinkingSnippet ? (
+                <span className="min-w-0 truncate text-muted-foreground group-data-[state=open]:hidden">{thinkingSnippet}</span>
+              ) : description ? (
+                <span className="min-w-0 truncate text-muted-foreground">{description}</span>
+              ) : null}
+              <ChevronDown className="size-3 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+            </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-top-1 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:slide-in-from-top-1">
+            <div className="space-y-2 pt-2 text-xs">
+              {(item.kind === 'bash' ? item.traces.slice(-1) : item.traces).map((trace, index) => (
+                <TimelineTraceDetail
+                  key={`${trace.id}-${trace.phase}-${index}`}
+                  index={item.traces.length > 1 ? index + 1 : undefined}
+                  part={item.parts[index] ?? item.parts[0]}
+                  trace={trace}
+                />
+              ))}
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
+      }
+      status={isPartial ? 'active' : 'complete'}
+    />
   );
 }
 
@@ -963,7 +1028,12 @@ function TimelineTraceDetail({
 
   if (trace.label === '思考') {
     if (!output) return null;
-    return <pre className="whitespace-pre-wrap wrap-break-word text-xs">{String(output)}</pre>;
+    return <pre className="whitespace-pre-wrap wrap-break-word font-sans text-xs">{String(output)}</pre>;
+  }
+
+  if (trace.kind === 'status') {
+    if (!output) return null;
+    return <div className="whitespace-pre-wrap wrap-break-word text-xs text-foreground/80">{String(output)}</div>;
   }
 
   const input = trace.input ?? (trace.phase === 'input' ? fallbackTraceText(part) : undefined);
@@ -972,7 +1042,7 @@ function TimelineTraceDetail({
     <div className="space-y-2 py-1 leading-relaxed">
       {index && <div className="text-[11px] text-muted-foreground">#{index}</div>}
       {trace.path && <PathOpenButton path={trace.path} title={trace.path} />}
-      {trace.description && trace.kind !== 'read' && (
+      {trace.description && !['read', 'edit', 'write'].includes(trace.kind) && (
         <div className="break-words text-muted-foreground">{trace.description}</div>
       )}
       {input !== undefined && (
@@ -1050,10 +1120,20 @@ function PathInlineButton({ path, title }: { path: string; title?: string }): Re
   );
 }
 
+function getThinkingSnippet(output: unknown): string | undefined {
+  if (typeof output !== 'string') return undefined;
+  const text = output.trim();
+  if (!text) return undefined;
+  const firstLine = text.split('\n')[0] ?? text;
+  return firstLine.length > 40 ? firstLine.slice(0, 40) + '...' : firstLine;
+}
+
 function timelineItemIcon(kind: TimelineItem['kind']): LucideIcon | undefined {
   if (kind === 'thinking') return undefined;
   if (kind === 'bash') return SquareTerminal;
   if (kind === 'read') return FileText;
+  if (kind === 'edit') return PenLine;
+  if (kind === 'write') return FilePenLine;
   if (kind === 'mcp') return Plug;
   if (kind === 'status') return Clock;
   if (kind === 'plan') return Sparkles;
