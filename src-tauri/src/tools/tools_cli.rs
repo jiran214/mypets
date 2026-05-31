@@ -4,11 +4,11 @@ use serde_json::{json, Map, Value};
 
 use super::tools_countdown::handle_countdown;
 use super::tools_pomodoro::handle_pomodoro;
+use super::tools_storage::tools_data_dir;
 use super::tools_todolist::handle_todolist;
 
-fn resolve_data_dir(workspace: &str) -> PathBuf {
-    let ws = PathBuf::from(workspace);
-    ws.join(".wimipet").join("tools")
+fn resolve_data_dir(_workspace: &str) -> PathBuf {
+    tools_data_dir()
 }
 
 fn parse_cli_params(args: &[String]) -> Map<String, Value> {

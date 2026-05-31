@@ -7,8 +7,13 @@ use std::{
 use chrono::Local;
 use serde_json::Value;
 
-pub(crate) fn tools_data_dir(paths: &crate::ai::StoragePaths) -> PathBuf {
-    paths.wimipet_dir.join("tools")
+use crate::ai::ai_skills::home_dir;
+
+pub(crate) fn tools_data_dir() -> PathBuf {
+    home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".wimipet")
+        .join("tools")
 }
 
 pub(crate) fn resolve_data_file(data_dir: &Path, file_name: &str) -> PathBuf {

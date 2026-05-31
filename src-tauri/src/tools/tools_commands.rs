@@ -24,8 +24,8 @@ pub fn send_tools_command(
         return Err("Missing tools action".to_string());
     }
 
-    let paths = crate::ai::resolve_storage(&workspace_folder)?;
-    let data_dir = tools_data_dir(&paths);
+    crate::ai::resolve_storage(&workspace_folder)?;
+    let data_dir = tools_data_dir();
     std::fs::create_dir_all(&data_dir)
         .map_err(|err| format!("Cannot create tools data directory: {err}"))?;
 
