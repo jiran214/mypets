@@ -16,6 +16,7 @@ npm run tauri dev        # 完整开发模式：Vite 前端 + Rust 编译 + 启�
 npm run tauri build      # 生产构建，打包为原生可执行文件
 npm run dev              # 仅前端，Vite 开发服务器 (端口 1420)
 npm run build            # TypeScript 类型检查 + Vite 构建到 dist/
+npm run preview          # 预览 dist/ 产物
 # CLI 子命令（构建后可用）：
 wimipet tools pomodoro   # 终端番茄钟
 wimipet tools todolist   # 终端待办列表
@@ -177,7 +178,7 @@ AI 聊天专用组件在 `src/components/ai-elements/`：流式对话、消息�
 
 ## 关键依赖
 
-- **NPM:** `@tauri-apps/api` ^2、`@tauri-apps/plugin-dialog` ^2、`@earendil-works/pi-coding-agent` ^0.75、`typescript` ~5.6、`vite` ^6、`react` 19、`tailwindcss` ^4、`shadcn` ^4、`streamdown`（流式 Markdown 渲染）、`motion`（动画）、`shiki`（代码高亮）、`ai`（Vercel AI SDK，用于部分类型定义）
+- **NPM:** `@tauri-apps/api` ^2、`@tauri-apps/plugin-dialog` ^2、`@earendil-works/pi-coding-agent` ^0.77、`typescript` ~5.6、`vite` ^6、`react` 19、`tailwindcss` ^4、`shadcn` ^4、`streamdown` + `@streamdown/cjk`、`@streamdown/code`、`@streamdown/math`、`@streamdown/mermaid`（流式 Markdown 渲染）、`motion`（动画）、`shiki`（代码高亮）、`ai`（Vercel AI SDK，用于部分类型定义）、`cmdk`（命令面板）、`use-stick-to-bottom`（聊天滚动）
 - **Cargo:** `tauri` 2 (带 `tray-icon`、`protocol-asset`)、`tauri-plugin-dialog` 2、`serde` + `serde_json` 1、`base64` 0.22、`trash` 5
 
 ## 安全模型

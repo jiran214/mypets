@@ -2,7 +2,7 @@
 
 [中文](./README.md)
 
-A Tauri 2 desktop pet application — with built-in AI chat.
+A Tauri 2 desktop pet application — multi-pet support, AI chat, and built-in tools.
 
 <p align="center">
   <img src="/assets/image.png" alt="Landing page" width="45%" />
@@ -10,10 +10,20 @@ A Tauri 2 desktop pet application — with built-in AI chat.
   <img src="/assets/image-1.png" alt="Desktop pet" width="45%" />
 </p>
 
+## Features
+
+- **Multi-pet** — Run multiple pets simultaneously, each in its own window
+- **AI Chat** — Powered by Pi Agent SDK, streaming output, tool calls, file attachments
+- **Built-in Tools** — Pomodoro timer, todo list, countdown
+- **Sprite Animation** — Canvas 2D rendering, 9 animation states, drag interaction
+- **System Tray** — Minimize to tray when closing the main window, runs in background
+
 ## Tech Stack
 
-- **Frontend:** TypeScript + Vite + Canvas 2D
+- **Frontend:** TypeScript + React + Vite + Tailwind CSS + shadcn/ui
+- **Rendering:** Canvas 2D sprite animation
 - **Backend:** Rust (Tauri 2)
+- **AI:** Pi Agent SDK (Node.js runner)
 
 ## Development
 
@@ -40,11 +50,6 @@ my-pet/
 ## Animation States
 
 idle, running-right, running-left, waving, jumping, failed, waiting, running, review
-
-## TODO
-
-- AI feature integration
-- Multi-action support
 
 ## License
 

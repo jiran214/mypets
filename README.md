@@ -2,7 +2,7 @@
 
 [English](./README_EN.md)
 
-Tauri 2 桌宠应用 — 内置 AI 聊天。
+Tauri 2 桌宠应用 — 支持多桌宠、AI 聊天、内置工具。
 
 <p align="center">
   <img src="/assets/image.png" alt="着陆页" width="45%" />
@@ -10,10 +10,20 @@ Tauri 2 桌宠应用 — 内置 AI 聊天。
   <img src="/assets/image-1.png" alt="桌面宠物" width="45%" />
 </p>
 
+## 功能特性
+
+- **多桌宠** — 同时运行多个桌宠，独立窗口
+- **AI 聊天** — 基于 Pi Agent SDK，支持流式输出、工具调用、文件附件
+- **内置工具** — 番茄钟、待办列表、倒计时
+- **精灵动画** — Canvas 2D 渲染，9 种动画状态，支持拖拽交互
+- **系统托盘** — 主窗口关闭时最小化到托盘，后台运行
+
 ## 技术栈
 
-- **前端:** TypeScript + Vite + Canvas 2D
+- **前端:** TypeScript + React + Vite + Tailwind CSS + shadcn/ui
+- **渲染:** Canvas 2D 精灵动画
 - **后端:** Rust (Tauri 2)
+- **AI:** Pi Agent SDK (Node.js runner)
 
 ## 开发
 
@@ -41,11 +51,6 @@ my-pet/
 
 idle, running-right, running-left, waving, jumping, failed, waiting, running, review
 
-## TODO
-
-- AI 功能集成
-- 多动作支持
-
 ## License
 
-MIT
+[GPL-3.0](LICENSE)
