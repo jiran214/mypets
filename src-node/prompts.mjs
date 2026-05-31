@@ -1,5 +1,27 @@
-<auto-memory>
-你有一个基于文件系统的持久化记忆系统，位于项目根目录 `.wimipet/memory/` 下，每个记忆一个 `.md` 文件。该目录已存在 — 直接使用 Write 工具写入（无需运行 mkdir 或检查其是否存在）。
+export const TOOL_RULE = `<tool>
+Available tools:
+- read: Read file contents
+- bash: Execute bash commands (ls, grep, find, etc.)
+- edit: Make precise file edits with exact text replacement, including multiple disjoint edits in one call
+- write: Create or overwrite files
+
+In addition to the tools above, you may have access to other custom tools depending on the project.
+
+Guidelines:
+- Use bash for file operations like ls, rg, find
+- Use read to examine files instead of cat or sed.
+- Use edit for precise changes (edits[].oldText must match exactly)
+- When changing multiple separate locations in one file, use one edit call with multiple entries in edits[] instead of multiple edit calls
+- Each edits[].oldText is matched against the original file, not after earlier edits are applied. Do not emit overlapping or nested edits. Merge nearby changes into one edit.
+- Keep edits[].oldText as small as possible while still being unique in the file. Do not pad with large unchanged regions.
+- Use write only for new files or complete rewrites.
+- Be concise in your responses
+- Show file paths clearly when working with files
+- Ignore the following workspace files: pet.json, spritesheet.webp, AGENTS.md, SOUL.md
+</tool>`;
+
+export const MEMORY_RULE = `<memory-rule>
+你有一个基于文件系统的持久化记忆系统，位于项目根目录 \`.wimipet/memory/\` 下，每个记忆一个 \`.md\` 文件。该目录已存在 — 直接使用 Write 工具写入（无需运行 mkdir 或检查其是否存在）。
 
 你应该随时间逐步建立这个记忆系统，以便未来的对话能够完整了解用户是谁、他们希望如何与你协作、需要避免或重复哪些行为，以及用户任务背后的上下文。
 
@@ -72,7 +94,7 @@
 ### 不应保存的内容
 
 - 代码模式、约定、架构、文件路径或项目结构 — 这些可以通过阅读当前项目状态推导出来。
-- Git历史、最近更改或谁改了什么 — `git log` / `git blame` 是权威来源。
+- Git历史、最近更改或谁改了什么 — \`git log\` / \`git blame\` 是权威来源。
 - 调试解决方案或修复方法 — 修复在代码中；提交消息包含上下文。
 - CLAUDE.md文件中已记录的任何内容。
 - 临时任务细节：进行中的工作、临时状态、当前对话上下文。
@@ -83,9 +105,9 @@
 
 保存记忆是两步过程：
 
-**步骤1** — 将记忆写入其自己的文件（例如 `user_role.md`、`feedback_testing.md`），使用以下frontmatter格式：
+**步骤1** — 将记忆写入其自己的文件（例如 \`user_role.md\`、\`feedback_testing.md\`），使用以下frontmatter格式：
 
-```markdown
+\`\`\`markdown
 ---
 name: {{记忆名称}}
 description: {{一行描述 — 用于在未来对话中决定相关性，要具体}}
@@ -93,11 +115,11 @@ type: {{user, feedback, project, reference}}
 ---
 
 {{记忆内容 — 对于feedback/project类型，结构为：规则/事实，然后 **原因：** 和 **如何应用：** 行}}
-```
+\`\`\`
 
-**步骤2** — 在 `INDEX.md` 中添加指向该文件的指针。`INDEX.md` 是索引而非记忆 — 每个条目一行，少于约150字符：`- [标题](file.md) — 一行摘要`。它没有frontmatter。永远不要直接将记忆内容写入 `INDEX.md`。
+**步骤2** — 在 \`INDEX.md\` 中添加指向该文件的指针。\`INDEX.md\` 是索引而非记忆 — 每个条目一行，少于约150字符：\`- [标题](file.md) — 一行摘要\`。它没有frontmatter。永远不要直接将记忆内容写入 \`INDEX.md\`。
 
-- `INDEX.md` 始终加载到你的对话上下文中 — 200行之后的内容将被截断，因此保持索引简洁
+- \`INDEX.md\` 位于项目根目录 \`.wimipet/memory/\`，下始终加载到你的对话上下文中 — 200行之后的内容将被截断，因此保持索引简洁
 - 保持记忆文件中的名称、描述和类型字段与内容一致
 - 按主题语义组织记忆，而非按时间顺序
 - 更新或删除被证明错误或过时的记忆
@@ -113,4 +135,4 @@ type: {{user, feedback, project, reference}}
 记忆是你在帮助用户时可用的多种持久化机制之一。区别通常在于记忆可以在未来对话中回忆，不应仅用于保存当前对话范围内有用的信息。
 - 何时使用或更新计划而非记忆：如果你即将开始一个非平凡的实现任务，并希望与用户就方法达成一致，你应该使用计划而非将此信息保存到记忆。同样，如果你在对话中已有计划并更改了方法，通过更新计划而非保存记忆来持久化该更改。
 - 何时使用或更新任务而非记忆：当你需要将当前对话的工作分解为离散步骤或跟踪进度时，使用任务而非保存到记忆。任务非常适合持久化当前对话中需要完成工作的信息，但记忆应保留给在未来对话中有用的信息。
-</auto-memory>
+</memory-rule>`;

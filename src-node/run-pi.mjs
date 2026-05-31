@@ -31,6 +31,7 @@ import {
 } from './runner.mjs';
 import { createDisabledSkillNotice } from './runner-utils.mjs';
 import extraPromptExtension from './extensions/extra-prompt.mjs';
+import { TOOL_RULE, MEMORY_RULE } from './prompts.mjs';
 
 /**
  * Fix UTF-16LE encoded text.
@@ -345,17 +346,19 @@ export async function runPi(input, logger) {
   let systemPrompt = '';
   try {
     const soulContent = readFileSync(join(workspaceDir, 'SOUL.md'), 'utf-8');
-    systemPrompt = `<SOUL>\n${soulContent}\n</SOUL>`;
+    systemPrompt = `<SOUL>\n${soulContent}\n</SOUL>`
   } catch {}
 
-  // Append INSTRUCTION.md if memory is enabled
+  // Append memory if memory is enabled
   if (settings.memoryEnabled) {
     try {
-      const appDir = join(homedir(), '.wimipet');
-      const instructionPath = join(appDir, 'prompts', 'INSTRUCTION.md');
-      const instructionContent = readFileSync(instructionPath, 'utf-8');
-      systemPrompt += `\n\n${instructionContent}`;
+      const indexPath = join(workspaceDir, '.wimipet', 'memory', 'INDEX.md');
+      const indexContent = readFileSync(indexPath, 'utf-8');
+      systemPrompt += `\n\n<memory>\n${indexContent}\n</memory>`;
     } catch {}
+
+    systemPrompt += `\n\n${TOOL_RULE}`;
+    systemPrompt += `\n\n${MEMORY_RULE}`;
   }
 
   const resourceLoader = new DefaultResourceLoader({

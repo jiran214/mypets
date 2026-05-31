@@ -215,7 +215,7 @@ impl Default for AiSettings {
             pet_scale: default_pet_scale(),
             pet_resize_enabled: false,
             display_name: String::new(),
-            memory_enabled: false,
+            memory_enabled: true,
             pi: PiSettings::default(),
         }
     }

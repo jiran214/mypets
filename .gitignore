@@ -10,6 +10,7 @@ yarn.lock
 dist/
 src-tauri/target/
 src-tauri/gen/
+output/
 
 # Logs
 *.log

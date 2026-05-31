@@ -77,10 +77,15 @@ pub(crate) fn build_chat_payload(
     })
 }
 
-pub(crate) fn helper_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let project_helper = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+pub(crate) fn app_root() -> Result<PathBuf, String> {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
-        .ok_or_else(|| "Cannot resolve project root".to_string())?
+        .ok_or_else(|| "Cannot resolve project root".to_string())
+        .map(|p| p.to_path_buf())
+}
+
+pub(crate) fn helper_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let project_helper = app_root()?
         .join("src-node")
         .join("runner.mjs");
     if project_helper.exists() {

@@ -972,6 +972,7 @@ function defaultAiSettings(): AiSettings {
     petScale: 1,
     petResizeEnabled: false,
     displayName: '',
+    memoryEnabled: true,
     pi: {
       provider: 'openai',
       model: '',
@@ -997,6 +998,7 @@ function normalizeSettings(settings: AiSettings | null | undefined): AiSettings 
     petStandingOnTop: settings?.petStandingOnTop ?? defaults.petStandingOnTop,
     petScale: settings?.petScale ?? defaults.petScale,
     petResizeEnabled: settings?.petResizeEnabled ?? defaults.petResizeEnabled,
+    memoryEnabled: settings?.memoryEnabled ?? defaults.memoryEnabled,
     pi: {
       ...defaults.pi,
       ...settings?.pi,
