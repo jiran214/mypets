@@ -1,105 +1,127 @@
+<div align="center">
+
+<picture>
+  <img src="./assets/wimi-logo-transparent.svg" alt="Wimi Pet Logo" width="160" />
+</picture>
+
 # Wimi Pet
 
-[中文](./README.md)
+**Let AI live on your desktop.**  
+A local AI desktop pet agent that can accompany, remember, and invoke tools.
 
-**AI lives on your desktop** — a desktop agent assistant that works, remembers, and understands you.
+<p>
+  <a href="./README.md">中文</a>
+  ·
+  <a href="#quick-start">Quick Start</a>
+  ·
+  <a href="#workspace">Workspace</a>
+  ·
+  <a href="#built-in-skills">Built-in Skills</a>
+</p>
+
+<p>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square" />
+  <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square" />
+  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square" />
+  <img alt="React" src="https://img.shields.io/badge/React-TypeScript-61DAFB?style=flat-square" />
+  <img alt="AI" src="https://img.shields.io/badge/AI-Pi%20Agent-8B5CF6?style=flat-square" />
+</p>
+
+</div>
+
+---
+
+## Preview
 
 <p align="center">
-  <img src="/assets/image.png" alt="Landing page" width="45%" />
-  &nbsp;&nbsp;
-  <img src="/assets/image-1.png" alt="Desktop pet" width="45%" />
+  <img src="./assets/image.png" alt="Wimi Pet Landing Page" width="48%" />
+  <img src="./assets/image-1.png" alt="Wimi Pet Desktop Pet" width="48%" />
 </p>
 
 ## Features
 
-### Multi-Pet Parallel
-Run multiple pets simultaneously, each with its own window, animations, skills, and AI memory — keeping you company while you work.
+| Feature | Description |
+| --- | --- |
+| 🐾 **Multi-Pet Parallel** | Run multiple pets simultaneously, each with independent windows, animations, skills, and memory. |
+| 🤖 **AI Agent Pet** | Built on Pi Agent, supporting streaming output, tool invocation, and file attachment drag-and-drop. |
+| 🧠 **Persistent Memory System** | Each pet has its own memory, remembering preferences, conversation history, and work habits. |
+| ✨ **9 Animation States** | Supports idle, running, waving, jumping, failed, waiting, and more states. |
+| 🍅 **Productivity Tools** | Built-in Pomodoro timer, todo list, and countdown, perfect for lightweight daily companionship. |
+| ⏰ **Scheduled Tasks** | Automatically execute AI tasks daily, weekly, or at fixed intervals — hands-free automation. |
+| 📦 **Codex Pets Compatible** | Supports importing [Codex Pets](https://codex-pets.net/) format resources directly. |
 
-### AI Agent Pet
-Each pet is an independent AI Agent built on Pi Agent SDK. Supports streaming output, tool calls, and file attachment drag-and-drop. Pets are more than animations — they're intelligent companions that understand context, invoke tools, and handle complex tasks.
-
-### Persistent Memory System
-Similar to Claude Memory, each pet has its own independent memory store. It remembers your preferences, conversation history, and work habits, maintaining context across sessions. The more you use it, the better it understands you.
-
-### 9 Lively Animations
-9 animation states including idle, running, waving, jumping, failed, waiting, and more. Triggered by interactions like dragging and hovering for lively reactions.
-
-### Built-in Productivity Tools
-- **Pomodoro Timer** — Focus timer with daily completion tracking
-- **Todo List** — Task management with due date support
-- **Countdown** — Important event countdown reminders
-
-### Compatible with Codex Pet Format
-Fully compatible with [Codex Pets](https://codex-pets.net/) resources. Import directly and start using.
-
-> **Note:** Currently Windows only. macOS/Linux support is planned.
+> Currently primarily supports **Windows**. macOS / Linux support is planned.
 
 ## Tech Stack
 
-- **Frontend:** TypeScript + React + Vite + Tailwind CSS + shadcn/ui
-- **Rendering:** Canvas 2D sprite animation
-- **Backend:** Rust (Tauri 2)
-- **AI:** Pi Agent SDK (Node.js runner)
+| Module | Technology |
+| --- | --- |
+| Frontend | TypeScript · React · Vite · Tailwind CSS · shadcn/ui |
+| Desktop | Tauri 2 · Rust |
+| Rendering | Canvas 2D Sprite Animation |
+| AI | Pi Agent SDK · Node.js Runner |
+| Extension | Skills · Workspace Config · Local Runtime Data |
 
-## Development
+## Quick Start
 
 ```bash
 npm install
-npm run tauri dev       # Full dev mode (frontend + Rust + window)
-npm run dev             # Frontend only (localhost:1420)
+npm run tauri dev
 ```
 
-## Build
+Frontend only:
+
+```bash
+npm run dev
+```
+
+Build application:
 
 ```bash
 npm run tauri build
 ```
 
-## Pet Folder Structure
+## Workspace
 
-Each pet folder is an independent **workspace**, containing pet resources and runtime data:
+Each pet folder is an independent workspace containing pet resources, AI configuration, and runtime data.
 
-```
-my-pet/                    # Workspace root
+```text
+my-pet/
 ├── SOUL.md                # Pet persona
-├── pet.json               # Pet manifest
-├── spritesheet.png        # Spritesheet (8 columns x 9 rows, 192x208px per frame)
-└── .wimipet/              # Workspace runtime data
-    ├── settings.json      # AI settings (model, persona, skill config)
-    ├── sessions/          # AI session metadata
+├── pet.json               # Pet manifest file
+├── spritesheet.png        # Spritesheet: 8 columns x 9 rows, each cell 192x208px
+└── .wimipet/
+    ├── settings.json      # AI settings: model, persona, skill config
+    ├── memory/            # Memory
+    ├── sessions/          # Conversation session metadata
     └── logs/              # AI runtime logs
 ```
 
-**Workspace details:**
-- Each workspace can be independently enabled/disabled, supporting multi-pet parallel usage
-- The `.wimipet/` directory stores AI config, session history, and logs for that workspace
-- AI settings and session data are tied to the pet — context switches automatically when switching pets
+### Workspace Features
 
-**Importing pets:**
-Place a pet folder into the app workspace, or import via the app UI. Supports [Codex Pets](https://codex-pets.net/) format resources.
+- Each pet can be independently enabled / disabled
+- Each pet has its own AI configuration and session data
+- Automatically switch context when switching pets
+- Import pet folders through the application interface
 
 ## Built-in Skills
 
-The app includes the following skills, located in the project's `skills/` directory:
+<a href="./skills">Directory Link</a>
 
 | Skill | Description |
 | --- | --- |
-| **pomodoro** | Pomodoro timer — start, pause, resume, stop; tracks daily completions |
-| **todolist** | Todo list management — add, complete, update, delete tasks |
-| **countdown** | Countdown tool — important event reminders |
+| `pomodoro` | Pomodoro timer supporting start, pause, resume, and stop, with daily completion tracking. |
+| `todolist` | Todo list management supporting add, complete, update, and delete tasks. |
+| `countdown` | Countdown tool for important event reminders. |
 
-**Installing custom skills:**
+## Custom Skills
 
-Copy a skill folder (containing `SKILL.md`) to either of the following locations:
+Copy skill folders containing `SKILL.md` to either of the following locations:
 
-| Location | Path | Description |
+| Type | Path | Scope |
 | --- | --- | --- |
-| Global | `C:\Users\<username>\.wimipet\skills\` | Available to all pets |
-| Local | `<pet workspace>/.wimipet/skills/` | Available to the current pet only |
-
-## Animation States
-
-idle, running-right, running-left, waving, jumping, failed, waiting, running, review
+| Global Skills | `C:\Users\<username>\.wimipet\skills\` | Available to all pets |
+| Local Skills | `<Pet Workspace>/.wimipet/skills/` | Only available to current pet |
 
 ## License
 
