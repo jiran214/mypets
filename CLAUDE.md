@@ -50,7 +50,7 @@ wimipet tools countdown  # 终端倒计时
 - `load_pi_provider_auth` / `save_pi_provider_auth` — Pi provider 认证管理
 - `list_auto_tasks` / `save_auto_task` / `delete_auto_task` — 定时任务 CRUD
 - `list_skills` — 列出可用的 skill 文件（全局 + 工作空间级别）
-- `load_agents_md_content` / `save_agents_md_content` — agents.md 文件的读写
+- `load_soul_md_content` / `save_soul_md_content` — SOUL.md 文件的读写
 - `save_dropped_chat_file` — 保存拖入聊天的文件到工作空间
 - `send_ai_chat_message` — 启动 AI 子进程，通过 Tauri event 系统流式返回结果
 - `cancel_ai_chat_message` — 取消正在进行的 AI 请求（向子进程发送 SIGINT）

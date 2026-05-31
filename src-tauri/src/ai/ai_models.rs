@@ -46,6 +46,8 @@ pub struct AiSettings {
     #[serde(default)]
     pub display_name: String,
     #[serde(default)]
+    pub memory_enabled: bool,
+    #[serde(default)]
     pub pi: PiSettings,
 }
 
@@ -213,6 +215,7 @@ impl Default for AiSettings {
             pet_scale: default_pet_scale(),
             pet_resize_enabled: false,
             display_name: String::new(),
+            memory_enabled: false,
             pi: PiSettings::default(),
         }
     }

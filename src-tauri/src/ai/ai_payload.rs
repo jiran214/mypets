@@ -57,6 +57,7 @@ pub(crate) fn build_chat_payload(
         "providerState": request.provider_state,
         "allSkillNames": all_skill_names,
         "settings": {
+            "memoryEnabled": settings.memory_enabled,
             "pi": {
                 "provider": settings.pi.provider,
                 "model": settings.pi.model,

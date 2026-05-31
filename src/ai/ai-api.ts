@@ -25,12 +25,12 @@ export function saveAiSettings(workspaceFolder: string, settings: AiSettings): P
   return invoke<AiState>('save_ai_settings', { workspaceFolder, settings });
 }
 
-export function loadAgentsMd(workspaceFolder: string): Promise<string> {
-  return invoke<string>('load_agents_md_content', { workspaceFolder });
+export function loadSoulMd(workspaceFolder: string): Promise<string> {
+  return invoke<string>('load_soul_md_content', { workspaceFolder });
 }
 
-export function saveAgentsMd(workspaceFolder: string, content: string): Promise<void> {
-  return invoke<void>('save_agents_md_content', { workspaceFolder, content });
+export function saveSoulMd(workspaceFolder: string, content: string): Promise<void> {
+  return invoke<void>('save_soul_md_content', { workspaceFolder, content });
 }
 
 export function loadPiProviderAuth(provider: string, authKey: string): Promise<PiProviderAuth> {

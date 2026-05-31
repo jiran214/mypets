@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 import {
   AuthStorage,
@@ -29,6 +30,7 @@ import {
   setActiveAbortHandler,
 } from './runner.mjs';
 import { createDisabledSkillNotice } from './runner-utils.mjs';
+import extraPromptExtension from './extensions/extra-prompt.mjs';
 
 /**
  * Fix UTF-16LE encoded text.
@@ -279,7 +281,7 @@ function createBridgeUIContext(requestId) {
   };
 }
 
-export async function runPi(input) {
+export async function runPi(input, logger) {
   const settings = input.settings ?? {};
   const piSettings = settings.pi ?? {};
   const providerState = input.providerState ?? {};
@@ -340,7 +342,29 @@ export async function runPi(input) {
   }
 
   // Create resource loader
-  const resourceLoader = new DefaultResourceLoader({ cwd: workspaceDir, agentDir, settingsManager });
+  let systemPrompt = '';
+  try {
+    const soulContent = readFileSync(join(workspaceDir, 'SOUL.md'), 'utf-8');
+    systemPrompt = `<SOUL>\n${soulContent}\n</SOUL>`;
+  } catch {}
+
+  // Append INSTRUCTION.md if memory is enabled
+  if (settings.memoryEnabled) {
+    try {
+      const appDir = join(homedir(), '.wimipet');
+      const instructionPath = join(appDir, 'prompts', 'INSTRUCTION.md');
+      const instructionContent = readFileSync(instructionPath, 'utf-8');
+      systemPrompt += `\n\n${instructionContent}`;
+    } catch {}
+  }
+
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: workspaceDir,
+    agentDir,
+    settingsManager,
+    extensionFactories: [(pi) => extraPromptExtension(pi, logger)],
+    systemPrompt,
+  });
   await resourceLoader.reload();
 
   // Create the agent session

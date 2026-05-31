@@ -29,6 +29,7 @@ export interface AiSettings {
   petScale: number;
   petResizeEnabled: boolean;
   displayName: string;
+  memoryEnabled: boolean;
   pi: PiSettings;
 }
 

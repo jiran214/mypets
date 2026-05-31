@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
-import { dirname, normalize } from 'node:path';
+import { dirname, join, normalize } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 import { runPi } from './run-pi.mjs';
+import { createLogger } from './logger.mjs';
 
 let activeRequestId = 'unknown';
 const MAX_INLINE_ATTACHMENT_BYTES = 256 * 1024;
@@ -387,8 +388,12 @@ async function main() {
   }
   activeRequestId = input.requestId;
 
+  const logFile = input.paths?.logFile;
+  const nodeLogFile = logFile ? join(dirname(logFile), 'node.log') : null;
+  const logger = nodeLogFile ? createLogger(nodeLogFile, input.requestId) : null;
+
   try {
-    await runPi(input);
+    await runPi(input, logger);
   } finally {
     closeInputBridge();
   }

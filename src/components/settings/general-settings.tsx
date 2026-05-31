@@ -101,6 +101,20 @@ export function GeneralSettings({
               </FieldContent>
             </Field>
 
+            <Field orientation="horizontal" data-disabled={disabled} className="rounded-lg border bg-background p-3">
+              <Switch
+                id="memory-enabled"
+                disabled={disabled}
+                checked={settingsDraft.memoryEnabled}
+                onCheckedChange={(checked) => onSettingsChange({ ...settingsDraft, memoryEnabled: checked })}
+                aria-label="记忆"
+              />
+              <FieldContent>
+                <FieldLabel htmlFor="memory-enabled">记忆</FieldLabel>
+                <FieldDescription>开启后注入全局记忆指令到 AI 对话中。</FieldDescription>
+              </FieldContent>
+            </Field>
+
             {/* 顶部吸附 - 待实现功能后启用 */}
             {false && settingsDraft.petGravityEnabled && (
               <Field orientation="horizontal" data-disabled={disabled} className="rounded-lg border bg-background p-3">
@@ -127,10 +141,10 @@ export function GeneralSettings({
               disabled={disabled}
               rows={12}
               className="min-h-60"
-              placeholder="在此编辑桌宠人设，保存到工作空间的 AGENTS.md 文件"
+              placeholder="在此编辑桌宠人设，保存到工作空间的 SOUL.md 文件"
               onChange={(event) => onPersonaChange(event.currentTarget.value)}
             />
-            <FieldDescription>自动保存到 AGENTS.md，作为当前桌宠的对话人格注入当前 Agent。</FieldDescription>
+            <FieldDescription>自动保存到 SOUL.md，作为当前桌宠的对话人格注入当前 Agent。</FieldDescription>
           </Field>
         </FieldGroup>
       </FieldSet>

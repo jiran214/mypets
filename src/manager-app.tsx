@@ -46,7 +46,7 @@ import {
   type AutoTask,
 } from '@/ai/auto-tasks';
 import { AutoTaskScheduler, prepareAutoTaskForSave, upsertAutoTask } from '@/ai/auto-task-scheduler';
-import { loadAgentsMd, saveAiSettings, saveAgentsMd } from '@/ai/ai-api';
+import { loadSoulMd, saveAiSettings, saveSoulMd } from '@/ai/ai-api';
 import type { ChatRuntime } from '@/ai/chat-runtime';
 import { ChatPanel } from '@/ai/chat-ui';
 import type { AiSessionSummary, AiSettings, AiState } from '@/ai/ai-types';
@@ -328,7 +328,7 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
       autoSavingRef.current = false;
     }
 
-    void loadAgentsMd(folder).then((content) => {
+    void loadSoulMd(folder).then((content) => {
       setPersonaDraft(content);
     });
   }, [readyWorkspace, runtime]);
@@ -378,7 +378,7 @@ function ManagerApp({ runtime }: { runtime: ChatRuntime }): ReactNode {
       const persona = personaDraftRef.current;
       if (!ws) return;
 
-      void saveAgentsMd(ws.folder, persona).catch(() => {});
+      void saveSoulMd(ws.folder, persona).catch(() => {});
     }, 600);
 
     return () => {

@@ -157,21 +157,21 @@ pub(crate) fn ai_settings_path(paths: &StoragePaths) -> PathBuf {
     paths.wimipet_dir.join("settings.json")
 }
 
-pub(crate) fn agents_md_path(paths: &StoragePaths) -> PathBuf {
-    paths.workspace_dir.join("AGENTS.md")
+pub(crate) fn soul_md_path(paths: &StoragePaths) -> PathBuf {
+    paths.workspace_dir.join("SOUL.md")
 }
 
-pub(crate) fn load_agents_md(paths: &StoragePaths) -> String {
-    let path = agents_md_path(paths);
+pub(crate) fn load_soul_md(paths: &StoragePaths) -> String {
+    let path = soul_md_path(paths);
     if !path.exists() {
         return String::new();
     }
     fs::read_to_string(&path).unwrap_or_default()
 }
 
-pub(crate) fn save_agents_md(paths: &StoragePaths, content: &str) -> Result<(), String> {
-    let path = agents_md_path(paths);
-    fs::write(&path, content).map_err(|err| format!("Cannot write AGENTS.md: {err}"))
+pub(crate) fn save_soul_md(paths: &StoragePaths, content: &str) -> Result<(), String> {
+    let path = soul_md_path(paths);
+    fs::write(&path, content).map_err(|err| format!("Cannot write SOUL.md: {err}"))
 }
 
 pub(crate) fn auto_tasks_path(paths: &StoragePaths) -> PathBuf {

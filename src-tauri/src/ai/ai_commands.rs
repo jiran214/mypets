@@ -16,9 +16,9 @@ use super::ai_process::{
 use super::ai_runner::{spawn_node_runner, RunnerConfig};
 use super::ai_skills::{collect_all_skills, SkillInfo};
 use super::ai_storage::{
-    append_ai_log, load_agents_md, load_auto_tasks, load_settings, now_ms, path_to_string,
+    append_ai_log, load_auto_tasks, load_settings, load_soul_md, now_ms, path_to_string,
     pi_auth_path, public_paths, read_pi_auth_file, resolve_storage, safe_pi_auth_key,
-    save_agents_md, save_auto_tasks_file, save_settings, write_session_meta, LogLevel,
+    save_auto_tasks_file, save_settings, save_soul_md, write_session_meta, LogLevel,
 };
 
 #[tauri::command]
@@ -67,15 +67,15 @@ pub fn save_ai_settings(workspace_folder: String, settings: AiSettings) -> Resul
 }
 
 #[tauri::command]
-pub fn load_agents_md_content(workspace_folder: String) -> Result<String, String> {
+pub fn load_soul_md_content(workspace_folder: String) -> Result<String, String> {
     let paths = resolve_storage(&workspace_folder)?;
-    Ok(load_agents_md(&paths))
+    Ok(load_soul_md(&paths))
 }
 
 #[tauri::command]
-pub fn save_agents_md_content(workspace_folder: String, content: String) -> Result<(), String> {
+pub fn save_soul_md_content(workspace_folder: String, content: String) -> Result<(), String> {
     let paths = resolve_storage(&workspace_folder)?;
-    save_agents_md(&paths, &content)
+    save_soul_md(&paths, &content)
 }
 
 #[tauri::command]
